@@ -5,8 +5,7 @@ import { ChevronLeft, Zap, FileText, Copy, Download, Sparkles, X } from 'lucide-
 import * as DocumentPicker from 'expo-document-picker';
 import { GoogleGenAI } from '@google/genai';
 import { PDFDocument as PDFLib, StandardFonts, rgb } from 'pdf-lib';
-import * as FileSystem from 'expo-file-system';
-import * as Sharing from 'expo-sharing';
+import { savePdf } from '../lib/savePdf';
 
 interface TranscriptionProps {
   setView: (view: any) => void;
@@ -93,11 +92,7 @@ export default function Transcription({ setView }: TranscriptionProps) {
       });
 
       const pdfBytes = await pdfDoc.save();
-      const base64 = Buffer.from(pdfBytes).toString('base64');
-      const filename = `${(FileSystem as any).documentDirectory || ''}transcript-${Date.now()}.pdf`;
-      
-      await FileSystem.writeAsStringAsync(filename, base64, { encoding: (FileSystem as any).EncodingType?.Base64 || 'base64' });
-      await Sharing.shareAsync(filename);
+      await savePdf(pdfBytes, `transcript-${Date.now()}.pdf`);
     } catch (err) {
       console.error('Export error:', err);
       Alert.alert('Error', 'Failed to export transcript as PDF.');

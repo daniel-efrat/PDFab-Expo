@@ -1,18 +1,12 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, ActivityIndicator, Dimensions, PanResponder, Animated } from 'react-native';
+import React, { useState } from 'react';
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, ActivityIndicator, Dimensions } from 'react-native';
 import { useStore } from '../store/useStore';
-import { ChevronLeft, Save, Download, Type, Highlighter, PenTool, MessageSquare, MousePointer2, ZoomIn, ZoomOut, Undo2, Redo2, FileText, Layers, Settings, Trash2, Share, Zap } from 'lucide-react-native';
-import * as pdfjs from 'pdfjs-dist';
-import { PDFDocument as PDFLib, rgb } from 'pdf-lib';
-
-// Set up PDF.js worker
-pdfjs.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjs.version}/pdf.worker.min.js`;
-import { db, storage } from '../firebase';
+import { ChevronLeft, Save, Download, Type, Highlighter, PenTool, MessageSquare, MousePointer2, Undo2, Redo2, FileText, Layers, Zap } from 'lucide-react-native';
+import { PDFDocument as PDFLib } from 'pdf-lib';
+import { db } from '../firebase';
 import { doc, updateDoc } from 'firebase/firestore';
-import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
-import { Svg, Path, Rect, Text as SvgText, G } from 'react-native-svg';
-import * as FileSystem from 'expo-file-system';
-import * as Sharing from 'expo-sharing';
+import { Svg, Path, Text as SvgText } from 'react-native-svg';
+import { savePdf } from '../lib/savePdf';
 
 const { width, height } = Dimensions.get('window');
 
@@ -21,32 +15,21 @@ interface EditorProps {
 }
 
 export default function Editor({ setView }: EditorProps) {
-  const { user, currentDocument, activeTool, setActiveTool, annotations, setAnnotations, undo, redo, canUndo, canRedo } = useStore();
-  const [pdf, setPdf] = useState<any>(null);
-  const [loading, setLoading] = useState(true);
-  const [zoom, setZoom] = useState(1);
+  const {
+    user,
+    currentDocument,
+    activeTool,
+    setActiveTool,
+    annotations,
+    undo,
+    redo,
+    canUndo,
+    canRedo,
+  } = useStore();
   const [currentPage, setCurrentPage] = useState(0);
   const [saving, setSaving] = useState(false);
-  const [showTools, setShowTools] = useState(true);
 
-  useEffect(() => {
-    if (!currentDocument) return;
-
-    const loadPdf = async () => {
-      try {
-        const loadingTask = pdfjs.getDocument(currentDocument.fileUrl);
-        const pdfDoc = await loadingTask.promise;
-        setPdf(pdfDoc);
-        setAnnotations(currentDocument.annotations || []);
-      } catch (err) {
-        console.error('PDF load error:', err);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    loadPdf();
-  }, [currentDocument]);
+  const pageCount = Math.max(currentDocument?.totalPages || 1, 1);
 
   const handleSave = async () => {
     if (!currentDocument || !user) return;
@@ -54,7 +37,7 @@ export default function Editor({ setView }: EditorProps) {
     try {
       await updateDoc(doc(db, 'documents', currentDocument.id), {
         annotations,
-        updatedAt: new Date().toISOString()
+        updatedAt: new Date().toISOString(),
       });
     } catch (err) {
       console.error('Save error:', err);
@@ -64,37 +47,20 @@ export default function Editor({ setView }: EditorProps) {
   };
 
   const handleExport = async () => {
-    if (!currentDocument) return;
+    if (!currentDocument?.fileUrl) return;
     try {
       const response = await fetch(currentDocument.fileUrl);
       const existingPdfBytes = await response.arrayBuffer();
       const pdfDoc = await PDFLib.load(existingPdfBytes);
-      
-      // In a real app, we'd loop through annotations and draw them on the PDF
-      // For this demo, we'll just re-save the original
       const pdfBytes = await pdfDoc.save();
-      const base64 = Buffer.from(pdfBytes).toString('base64');
-      const filename = `${(FileSystem as any).documentDirectory || ''}${currentDocument.title}`;
-      
-      await FileSystem.writeAsStringAsync(filename, base64, { encoding: (FileSystem as any).EncodingType?.Base64 || 'base64' });
-      await Sharing.shareAsync(filename);
+      await savePdf(pdfBytes, currentDocument.title);
     } catch (err) {
       console.error('Export error:', err);
     }
   };
 
-  if (loading) {
-    return (
-      <View style={styles.loading}>
-        <ActivityIndicator color="#fff" size="large" />
-        <Text style={styles.loadingText}>LOADING DOCUMENT...</Text>
-      </View>
-    );
-  }
-
   return (
     <View style={styles.container}>
-      {/* Header */}
       <View style={styles.header}>
         <View style={styles.headerLeft}>
           <TouchableOpacity onPress={() => setView('dashboard')} style={styles.backButton}>
@@ -102,7 +68,7 @@ export default function Editor({ setView }: EditorProps) {
           </TouchableOpacity>
           <View>
             <Text style={styles.title} numberOfLines={1}>{currentDocument?.title}</Text>
-            <Text style={styles.subtitle}>PAGE {currentPage + 1} OF {pdf?.numPages}</Text>
+            <Text style={styles.subtitle}>PAGE {currentPage + 1} OF {pageCount}</Text>
           </View>
         </View>
 
@@ -119,28 +85,26 @@ export default function Editor({ setView }: EditorProps) {
         </View>
       </View>
 
-      {/* Main Content */}
       <View style={styles.editorArea}>
-        <ScrollView 
-          horizontal 
-          pagingEnabled 
+        <ScrollView
+          horizontal
+          pagingEnabled
           onMomentumScrollEnd={(e) => {
             const page = Math.round(e.nativeEvent.contentOffset.x / width);
             setCurrentPage(page);
           }}
         >
-          {Array.from({ length: pdf?.numPages || 0 }).map((_, i) => (
+          {Array.from({ length: pageCount }).map((_, i) => (
             <View key={i} style={styles.pageWrapper}>
               <View style={[styles.pdfPage, { width: width * 0.9, height: height * 0.6 }]}>
-                {/* PDF Content Placeholder */}
                 <View style={styles.pdfPlaceholder}>
                   <FileText size={64} color="rgba(255,255,255,0.05)" />
                   <Text style={styles.placeholderText}>PAGE {i + 1}</Text>
+                  <Text style={styles.nativeHint}>Preview rendering is simplified in Expo Go on native.</Text>
                 </View>
 
-                {/* Annotation Layer */}
                 <Svg style={StyleSheet.absoluteFill}>
-                  {annotations.filter(a => a.pageIndex === i).map((ann, idx) => (
+                  {annotations.filter((a) => a.pageIndex === i).map((ann, idx) => (
                     <AnnotationItem key={`ann-${idx}`} annotation={ann} />
                   ))}
                 </Svg>
@@ -150,7 +114,6 @@ export default function Editor({ setView }: EditorProps) {
         </ScrollView>
       </View>
 
-      {/* Toolbar */}
       <View style={styles.toolbar}>
         <ToolButton icon={MousePointer2} active={activeTool === 'SELECT'} onPress={() => setActiveTool('SELECT')} />
         <ToolButton icon={Type} active={activeTool === 'TEXT'} onPress={() => setActiveTool('TEXT')} />
@@ -163,7 +126,6 @@ export default function Editor({ setView }: EditorProps) {
         </TouchableOpacity>
       </View>
 
-      {/* Quick Access */}
       <View style={styles.quickAccess}>
         <TouchableOpacity style={styles.quickBtn} onPress={() => setView('reflow')}>
           <Layers size={18} color="#fff" />
@@ -178,18 +140,15 @@ export default function Editor({ setView }: EditorProps) {
   );
 }
 
-function ToolButton({ icon: Icon, active, onPress }: { icon: any, active: boolean, onPress: () => void }) {
+function ToolButton({ icon: Icon, active, onPress }: { icon: any; active: boolean; onPress: () => void }) {
   return (
-    <TouchableOpacity 
-      style={[styles.toolBtn, active && styles.activeToolBtn]} 
-      onPress={onPress}
-    >
+    <TouchableOpacity style={[styles.toolBtn, active && styles.activeToolBtn]} onPress={onPress}>
       <Icon size={24} color={active ? '#000' : 'rgba(255,255,255,0.4)'} />
     </TouchableOpacity>
   );
 }
 
-function AnnotationItem({ annotation }: { annotation: any, key?: string }) {
+function AnnotationItem({ annotation }: { annotation: any; key?: string }) {
   if (annotation.type === 'text') {
     return (
       <SvgText
@@ -202,6 +161,7 @@ function AnnotationItem({ annotation }: { annotation: any, key?: string }) {
       </SvgText>
     );
   }
+
   if (annotation.type === 'draw') {
     return (
       <Path
@@ -212,6 +172,7 @@ function AnnotationItem({ annotation }: { annotation: any, key?: string }) {
       />
     );
   }
+
   return null;
 }
 
@@ -219,26 +180,13 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#0a0a0a',
-    paddingTop: 60,
-  },
-  loading: {
-    flex: 1,
-    backgroundColor: '#0a0a0a',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  loadingText: {
-    color: 'rgba(255,255,255,0.4)',
-    fontSize: 10,
-    fontWeight: 'bold',
-    letterSpacing: 2,
-    marginTop: 20,
   },
   header: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
-    paddingHorizontal: 25,
+    justifyContent: 'space-between',
+    paddingHorizontal: 20,
+    paddingTop: 20,
     marginBottom: 20,
   },
   headerLeft: {
@@ -259,7 +207,7 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 16,
     fontWeight: 'bold',
-    maxWidth: width * 0.4,
+    maxWidth: width * 0.5,
   },
   subtitle: {
     color: 'rgba(255,255,255,0.4)',
@@ -270,8 +218,7 @@ const styles = StyleSheet.create({
   },
   headerActions: {
     flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
+    gap: 8,
   },
   actionBtn: {
     width: 40,
@@ -282,7 +229,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   disabledBtn: {
-    opacity: 0.3,
+    opacity: 0.4,
   },
   saveBtn: {
     width: 40,
@@ -294,55 +241,48 @@ const styles = StyleSheet.create({
   },
   editorArea: {
     flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
   },
   pageWrapper: {
-    width: width,
+    width,
     alignItems: 'center',
     justifyContent: 'center',
   },
   pdfPage: {
-    backgroundColor: '#fff',
-    borderRadius: 12,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.3,
-    shadowRadius: 20,
-    elevation: 10,
+    backgroundColor: '#111',
+    borderRadius: 24,
     overflow: 'hidden',
   },
   pdfPlaceholder: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#111',
+    gap: 10,
   },
   placeholderText: {
-    color: 'rgba(255,255,255,0.1)',
-    fontSize: 12,
+    color: '#fff',
     fontWeight: 'bold',
-    marginTop: 10,
+    letterSpacing: 1,
+  },
+  nativeHint: {
+    color: 'rgba(255,255,255,0.45)',
+    fontSize: 12,
+    textAlign: 'center',
+    maxWidth: 220,
   },
   toolbar: {
-    position: 'absolute',
-    bottom: 40,
-    left: 25,
-    right: 25,
-    height: 70,
-    backgroundColor: 'rgba(22,22,22,0.9)',
-    borderRadius: 35,
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-around',
-    paddingHorizontal: 15,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.1)',
+    marginHorizontal: 20,
+    marginBottom: 16,
+    padding: 8,
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    borderRadius: 20,
+    gap: 8,
   },
   toolBtn: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
+    width: 44,
+    height: 44,
+    borderRadius: 14,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -350,38 +290,36 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
   },
   toolDivider: {
-    width: 1,
-    height: 30,
-    backgroundColor: 'rgba(255,255,255,0.1)',
+    flex: 1,
   },
   exportBtn: {
-    width: 48,
-    height: 48,
-    backgroundColor: '#fff',
-    borderRadius: 24,
+    width: 44,
+    height: 44,
+    borderRadius: 14,
     alignItems: 'center',
     justifyContent: 'center',
+    backgroundColor: '#fff',
   },
   quickAccess: {
-    position: 'absolute',
-    right: 25,
-    top: 120,
-    gap: 15,
+    flexDirection: 'row',
+    gap: 12,
+    paddingHorizontal: 20,
+    paddingBottom: 24,
   },
   quickBtn: {
-    width: 50,
-    height: 50,
+    flex: 1,
+    height: 52,
+    borderRadius: 16,
     backgroundColor: 'rgba(255,255,255,0.05)',
-    borderRadius: 15,
+    flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.1)',
+    gap: 8,
   },
   quickText: {
-    color: 'rgba(255,255,255,0.4)',
-    fontSize: 8,
+    color: '#fff',
+    fontSize: 12,
     fontWeight: 'bold',
-    marginTop: 2,
+    letterSpacing: 1,
   },
 });

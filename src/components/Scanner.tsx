@@ -11,6 +11,10 @@ import { PDFDocument as PDFLib } from 'pdf-lib';
 
 const { width, height } = Dimensions.get('window');
 
+function toArrayBuffer(bytes: Uint8Array) {
+  return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
+}
+
 interface ScannerProps {
   setView: (view: any) => void;
 }
@@ -64,7 +68,7 @@ export default function Scanner({ setView }: ScannerProps) {
       page.drawImage(pdfImage, { x: 0, y: 0, width: pdfImage.width, height: pdfImage.height });
 
       const pdfBytes = await pdfDoc.save();
-      const blob = new Blob([pdfBytes], { type: 'application/pdf' });
+      const blob = new Blob([toArrayBuffer(pdfBytes)], { type: 'application/pdf' });
 
       const fileId = Math.random().toString(36).substring(7);
       const storagePath = `pdfs/${user.uid}/scan-${fileId}.pdf`;

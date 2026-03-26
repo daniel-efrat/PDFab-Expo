@@ -16,8 +16,6 @@
         "backgroundColor": "#0a0a0a"
       }
     },
-    "web": {
-      "bundler": "webpack"
-    }
+    "web": {}
   }
 }
