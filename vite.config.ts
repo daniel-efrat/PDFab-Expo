@@ -8,7 +8,12 @@ export default defineConfig(({mode}) => {
   return {
     plugins: [react(), tailwindcss()],
     define: {
-      'process.env.GEMINI_API_KEY': JSON.stringify(env.GEMINI_API_KEY),
+      'process.env.EXPO_OS': JSON.stringify('web'),
+      'process.env': {
+        ...Object.keys(env)
+          .filter(key => key.startsWith('EXPO_PUBLIC_') || key === 'GEMINI_API_KEY')
+          .reduce((acc, key) => ({ ...acc, [key]: env[key] }), {}),
+      },
       'global': 'window',
       '__DEV__': JSON.stringify(mode === 'development'),
     },
@@ -16,13 +21,13 @@ export default defineConfig(({mode}) => {
       alias: {
         '@': path.resolve(__dirname, '.'),
         'react-native': 'react-native-web',
+        'lucide-react-native': 'lucide-react',
       },
       extensions: ['.web.tsx', '.web.ts', '.web.jsx', '.web.js', '.tsx', '.ts', '.jsx', '.js'],
     },
     optimizeDeps: {
       include: [
         'react-native-web',
-        'lucide-react-native',
         'react-native-svg',
       ],
       esbuildOptions: {

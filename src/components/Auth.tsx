@@ -33,7 +33,11 @@ export default function Auth() {
 
   const handleGoogle = async () => {
     try {
-      await signInWithPopup(auth, googleProvider);
+      if (Platform.OS === 'web') {
+        await signInWithPopup(auth, googleProvider);
+      } else {
+        setError('Google Sign-In on mobile requires native configuration. Please use Email/Password sign-in for now or use the web version.');
+      }
     } catch (err: any) {
       setError(err.message);
     }

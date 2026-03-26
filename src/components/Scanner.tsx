@@ -4,10 +4,12 @@ import { Camera, CameraView, useCameraPermissions } from 'expo-camera';
 import * as ImagePicker from 'expo-image-picker';
 import { useStore } from '../store/useStore';
 import { ChevronLeft, Camera as CameraIcon, Image as ImageIcon, Check, X, Scan, RefreshCw } from 'lucide-react-native';
+import { uriToBlob } from '../lib/blob-utils';
 import { db, storage } from '../firebase';
 import { collection, addDoc } from 'firebase/firestore';
-import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
+import { ref, getDownloadURL } from 'firebase/storage';
 import { PDFDocument as PDFLib } from 'pdf-lib';
+import { uploadFileToFirebase } from '../lib/firebase-upload';
 
 const { width, height } = Dimensions.get('window');
 
@@ -60,21 +62,22 @@ export default function Scanner({ setView }: ScannerProps) {
     setScanning(true);
     try {
       const pdfDoc = await PDFLib.create();
-      const response = await fetch(image);
-      const imageBytes = await response.arrayBuffer();
+      const imageBytes = await uriToBlob(image);
       
-      const pdfImage = await pdfDoc.embedJpg(imageBytes);
+      // embedJpg accepts Uint8Array or ArrayBuffer. uriToBlob returns Uint8Array on native.
+      const pdfImage = await pdfDoc.embedJpg(imageBytes as any);
       const page = pdfDoc.addPage([pdfImage.width, pdfImage.height]);
       page.drawImage(pdfImage, { x: 0, y: 0, width: pdfImage.width, height: pdfImage.height });
 
       const pdfBytes = await pdfDoc.save();
-      const blob = new Blob([toArrayBuffer(pdfBytes)], { type: 'application/pdf' });
 
       const fileId = Math.random().toString(36).substring(7);
       const storagePath = `pdfs/${user.uid}/scan-${fileId}.pdf`;
       const storageRef = ref(storage, storagePath);
       
-      await uploadBytes(storageRef, blob);
+      await uploadFileToFirebase(storageRef, pdfBytes, {
+        contentType: 'application/pdf',
+      });
       const fileUrl = await getDownloadURL(storageRef);
 
       await addDoc(collection(db, 'documents'), {

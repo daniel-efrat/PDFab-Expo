@@ -7,8 +7,9 @@
   },
   "auth": {
     "providers": {
+      "emailPassword": true,
       "googleSignIn": {
-        "oAuthBrandDisplayName": "PDFab",
+        "oAuthBrandDisplayName": "PDFab-Expo",
         "supportEmail": "daniel989@gmail.com"
       }
     }

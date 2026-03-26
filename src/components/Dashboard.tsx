@@ -1,15 +1,15 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, FlatList, TextInput, ActivityIndicator, Image, ScrollView, Dimensions } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, FlatList, TextInput, ActivityIndicator, Image, ScrollView, Dimensions, useWindowDimensions, Modal, Alert } from 'react-native';
 import { collection, query, where, orderBy, onSnapshot, addDoc, updateDoc, doc, deleteDoc } from 'firebase/firestore';
-import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
+import { ref, getDownloadURL } from 'firebase/storage';
 import { db, storage, auth } from '../firebase';
 import { useStore } from '../store/useStore';
 import { PDFDocument } from '../types';
-import { FileText, Plus, Search, Star, Trash2, Clock, Zap, Scan, LogOut, User as UserIcon } from 'lucide-react-native';
+import { FileText, Plus, Search, Star, Trash2, Clock, Zap, Scan, LogOut, User as UserIcon, Edit2, X, Check } from 'lucide-react-native';
 import * as DocumentPicker from 'expo-document-picker';
 import { formatDate } from '../lib/utils';
-
-const { width } = Dimensions.get('window');
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { uploadFileToFirebase } from '../lib/firebase-upload';
 
 interface DashboardProps {
   setView: (view: any) => void;
@@ -17,10 +17,22 @@ interface DashboardProps {
 
 export default function Dashboard({ setView }: DashboardProps) {
   const { user, setCurrentDocument } = useStore();
+  const { width } = useWindowDimensions();
+  const isMobile = width < 768;
   const [documents, setDocuments] = useState<PDFDocument[]>([]);
   const [search, setSearch] = useState('');
   const [uploading, setUploading] = useState(false);
   const [filter, setFilter] = useState<'all' | 'starred' | 'trash'>('all');
+  
+  // Toast & Rename State
+  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
+  const [editingDoc, setEditingDoc] = useState<PDFDocument | null>(null);
+  const [editName, setEditName] = useState('');
+
+  const showToast = (message: string, type: 'success' | 'error' = 'success') => {
+    setToast({ message, type });
+    setTimeout(() => setToast(null), 3000);
+  };
 
   useEffect(() => {
     if (!user) return;
@@ -52,14 +64,13 @@ export default function Dashboard({ setView }: DashboardProps) {
 
       setUploading(true);
       const file = result.assets[0];
-      const response = await fetch(file.uri);
-      const blob = await response.blob();
-
       const fileId = Math.random().toString(36).substring(7);
       const storagePath = `pdfs/${user.uid}/${fileId}.pdf`;
       const storageRef = ref(storage, storagePath);
       
-      await uploadBytes(storageRef, blob);
+      await uploadFileToFirebase(storageRef, file.uri, {
+        contentType: 'application/pdf',
+      });
       const fileUrl = await getDownloadURL(storageRef);
 
       await addDoc(collection(db, 'documents'), {
@@ -71,11 +82,13 @@ export default function Dashboard({ setView }: DashboardProps) {
         updatedAt: new Date().toISOString(),
         isTrashed: false,
         isStarred: false,
-        totalPages: 0, // In a real app, we'd calculate this
+        totalPages: 0,
         annotations: []
       });
+      showToast('Document uploaded successfully!');
     } catch (error) {
       console.error('Upload error:', error);
+      showToast('Failed to upload document', 'error');
     } finally {
       setUploading(false);
     }
@@ -94,11 +107,35 @@ export default function Dashboard({ setView }: DashboardProps) {
   };
 
   const toggleStar = async (docId: string, current: boolean) => {
-    await updateDoc(doc(db, 'documents', docId), { isStarred: !current });
+    try {
+      await updateDoc(doc(db, 'documents', docId), { isStarred: !current });
+      showToast(current ? 'Removed from starred' : 'Added to starred');
+    } catch (error) {
+      showToast('Failed to update star', 'error');
+    }
   };
 
   const moveToTrash = async (docId: string) => {
-    await updateDoc(doc(db, 'documents', docId), { isTrashed: true });
+    try {
+      await updateDoc(doc(db, 'documents', docId), { isTrashed: true });
+      showToast('Moved to trash');
+    } catch (error) {
+      showToast('Failed to move to trash', 'error');
+    }
+  };
+
+  const handleRename = async () => {
+    if (!editingDoc || !editName.trim()) return;
+    try {
+      await updateDoc(doc(db, 'documents', editingDoc.id), { 
+        title: editName.trim(),
+        updatedAt: new Date().toISOString()
+      });
+      showToast('Document renamed');
+      setEditingDoc(null);
+    } catch (error) {
+      showToast('Failed to rename document', 'error');
+    }
   };
 
   const renderItem = ({ item }: { item: PDFDocument }) => (
@@ -120,6 +157,9 @@ export default function Dashboard({ setView }: DashboardProps) {
         <TouchableOpacity onPress={() => toggleStar(item.id, item.isStarred)}>
           <Star size={18} color={item.isStarred ? '#fbbf24' : 'rgba(255,255,255,0.2)'} fill={item.isStarred ? '#fbbf24' : 'transparent'} />
         </TouchableOpacity>
+        <TouchableOpacity onPress={() => { setEditingDoc(item); setEditName(item.title); }}>
+          <Edit2 size={18} color="rgba(255,255,255,0.2)" />
+        </TouchableOpacity>
         <TouchableOpacity onPress={() => moveToTrash(item.id)}>
           <Trash2 size={18} color="rgba(255,255,255,0.2)" />
         </TouchableOpacity>
@@ -128,7 +168,7 @@ export default function Dashboard({ setView }: DashboardProps) {
   );
 
   return (
-    <View style={styles.container}>
+    <SafeAreaView style={styles.container} edges={['top']}>
       {/* Header */}
       <View style={styles.header}>
         <View>
@@ -199,7 +239,62 @@ export default function Dashboard({ setView }: DashboardProps) {
           </View>
         }
       />
-    </View>
+
+      {/* Rename Modal */}
+      <Modal
+        visible={!!editingDoc}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setEditingDoc(null)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Rename Document</Text>
+              <TouchableOpacity onPress={() => setEditingDoc(null)}>
+                <X size={20} color="rgba(255,255,255,0.4)" />
+              </TouchableOpacity>
+            </View>
+            
+            <TextInput
+              style={styles.renameInput}
+              value={editName}
+              onChangeText={setEditName}
+              placeholder="Enter new name..."
+              placeholderTextColor="rgba(255,255,255,0.2)"
+              autoFocus
+            />
+            
+            <View style={styles.modalButtons}>
+              <TouchableOpacity 
+                style={[styles.modalButton, styles.cancelButton]} 
+                onPress={() => setEditingDoc(null)}
+              >
+                <Text style={styles.cancelButtonText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity 
+                style={[styles.modalButton, styles.saveButton]} 
+                onPress={handleRename}
+              >
+                <Text style={styles.saveButtonText}>Save Changes</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Toast Notification */}
+      {toast && (
+        <View style={[styles.toast, toast.type === 'error' && styles.toastError]}>
+          <View style={styles.toastIcon}>
+            {toast.type === 'success' ? <Check size={14} color="#000" /> : <X size={14} color="#fff" />}
+          </View>
+          <Text style={[styles.toastText, toast.type === 'error' && styles.toastTextError]}>
+            {toast.message}
+          </Text>
+        </View>
+      )}
+    </SafeAreaView>
   );
 }
 
@@ -207,14 +302,14 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#0a0a0a',
-    paddingTop: 60,
   },
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     paddingHorizontal: 25,
-    marginBottom: 25,
+    marginBottom: 20,
+    marginTop: 10,
   },
   welcome: {
     color: '#fff',
@@ -232,7 +327,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     paddingHorizontal: 25,
     gap: 12,
-    marginBottom: 25,
+    marginBottom: 20,
   },
   searchInputWrapper: {
     flex: 1,
@@ -370,5 +465,106 @@ const styles = StyleSheet.create({
     marginTop: 15,
     letterSpacing: 1,
     textTransform: 'uppercase',
+  },
+  // Toast Styles
+  toast: {
+    position: 'absolute',
+    top: 60,
+    left: 20,
+    right: 20,
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    padding: 15,
+    flexDirection: 'row',
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.3,
+    shadowRadius: 20,
+    elevation: 10,
+    zIndex: 1000,
+  },
+  toastError: {
+    backgroundColor: '#ef4444',
+  },
+  toastIcon: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: 'rgba(0,0,0,0.05)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 12,
+  },
+  toastText: {
+    color: '#000',
+    fontSize: 14,
+    fontWeight: 'bold',
+  },
+  toastTextError: {
+    color: '#fff',
+  },
+  // Modal Styles
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.8)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  modalContent: {
+    width: '100%',
+    backgroundColor: '#1a1a1a',
+    borderRadius: 24,
+    padding: 25,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.1)',
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 20,
+  },
+  modalTitle: {
+    color: '#fff',
+    fontSize: 18,
+    fontWeight: 'bold',
+  },
+  renameInput: {
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    borderRadius: 12,
+    height: 55,
+    paddingHorizontal: 15,
+    color: '#fff',
+    fontSize: 16,
+    marginBottom: 25,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.1)',
+  },
+  modalButtons: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  modalButton: {
+    flex: 1,
+    height: 50,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  cancelButton: {
+    backgroundColor: 'rgba(255,255,255,0.05)',
+  },
+  saveButton: {
+    backgroundColor: '#fff',
+  },
+  cancelButtonText: {
+    color: 'rgba(255,255,255,0.4)',
+    fontWeight: 'bold',
+  },
+  saveButtonText: {
+    color: '#000',
+    fontWeight: 'bold',
   },
 });

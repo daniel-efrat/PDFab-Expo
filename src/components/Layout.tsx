@@ -1,8 +1,9 @@
 import React from 'react';
-import { View, Text, TouchableOpacity, Image, StyleSheet, ScrollView } from 'react-native';
+import { View, Text, TouchableOpacity, Image, StyleSheet, ScrollView, Platform, useWindowDimensions } from 'react-native';
 import { LayoutDashboard, FileText, Type, PenTool, Camera, LogOut, User as UserIcon } from 'lucide-react-native';
 import { auth } from '../firebase';
 import { useStore } from '../store/useStore';
+import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 
 interface LayoutProps {
   children: React.ReactNode;
@@ -12,6 +13,8 @@ interface LayoutProps {
 
 export default function Layout({ children, currentView, setView }: LayoutProps) {
   const { user } = useStore();
+  const { width } = useWindowDimensions();
+  const isMobile = width < 768 || Platform.OS !== 'web';
 
   const navItems = [
     { id: 'dashboard', label: 'Library', icon: LayoutDashboard },
@@ -20,86 +23,118 @@ export default function Layout({ children, currentView, setView }: LayoutProps) 
     { id: 'scanner', label: 'Scan to PDF', icon: Camera },
   ];
 
-  return (
-    <View style={styles.container}>
-      {/* Sidebar */}
-      <View style={styles.sidebar}>
-        <View style={styles.header}>
-          <View style={styles.logoContainer}>
-            <View style={styles.logo}>
-              <Text style={styles.logoText}>P</Text>
-            </View>
-            <Text style={styles.title}>PDFOX</Text>
+  const Sidebar = () => (
+    <View style={styles.sidebar}>
+      <View style={styles.header}>
+        <View style={styles.logoContainer}>
+          <View style={styles.logo}>
+            <Text style={styles.logoText}>P</Text>
           </View>
-        </View>
-
-        <ScrollView style={styles.nav}>
-          {navItems.map((item) => (
-            <TouchableOpacity
-              key={item.id}
-              onPress={() => setView(item.id)}
-              style={[
-                styles.navItem,
-                currentView === item.id && styles.navItemActive
-              ]}
-            >
-              <item.icon 
-                size={20} 
-                color={currentView === item.id ? "#000" : "rgba(255,255,255,0.4)"} 
-              />
-              <Text style={[
-                styles.navLabel,
-                currentView === item.id && styles.navLabelActive
-              ]}>
-                {item.label}
-              </Text>
-            </TouchableOpacity>
-          ))}
-        </ScrollView>
-
-        <View style={styles.footer}>
-          <View style={styles.userCard}>
-            {user?.photoURL ? (
-              <Image 
-                source={{ uri: user.photoURL }} 
-                style={styles.avatar} 
-                referrerPolicy="no-referrer" 
-              />
-            ) : (
-              <View style={styles.avatarPlaceholder}>
-                <UserIcon size={16} color="rgba(255,255,255,0.4)" />
-              </View>
-            )}
-            <View style={styles.userInfo}>
-              <Text style={styles.userName} numberOfLines={1}>
-                {user?.displayName || user?.email}
-              </Text>
-              <Text style={styles.userPlan}>
-                {user?.plan?.toUpperCase()} PLAN
-              </Text>
-            </View>
-            <TouchableOpacity 
-              onPress={() => auth.signOut()}
-              style={styles.logoutButton}
-            >
-              <LogOut size={16} color="rgba(255,255,255,0.4)" />
-            </TouchableOpacity>
-          </View>
+          <Text style={styles.title}>PDFOX</Text>
         </View>
       </View>
 
-      {/* Main Content */}
-      <View style={styles.main}>
-        {children}
+      <ScrollView style={styles.nav}>
+        {navItems.map((item) => (
+          <TouchableOpacity
+            key={item.id}
+            onPress={() => setView(item.id)}
+            style={[
+              styles.navItem,
+              currentView === item.id && styles.navItemActive
+            ]}
+          >
+            <item.icon 
+              size={20} 
+              color={currentView === item.id ? "#000" : "rgba(255,255,255,0.4)"} 
+            />
+            <Text style={[
+              styles.navLabel,
+              currentView === item.id && styles.navLabelActive
+            ]}>
+              {item.label}
+            </Text>
+          </TouchableOpacity>
+        ))}
+      </ScrollView>
+
+      <View style={styles.footer}>
+        <View style={styles.userCard}>
+          {user?.photoURL ? (
+            <Image 
+              source={{ uri: user.photoURL }} 
+              style={styles.avatar} 
+              referrerPolicy="no-referrer" 
+            />
+          ) : (
+            <View style={styles.avatarPlaceholder}>
+              <UserIcon size={16} color="rgba(255,255,255,0.4)" />
+            </View>
+          )}
+          <View style={styles.userInfo}>
+            <Text style={styles.userName} numberOfLines={1}>
+              {user?.displayName || user?.email}
+            </Text>
+            <Text style={styles.userPlan}>
+              {user?.plan?.toUpperCase()} PLAN
+            </Text>
+          </View>
+          <TouchableOpacity 
+            onPress={() => auth.signOut()}
+            style={styles.logoutButton}
+          >
+            <LogOut size={16} color="rgba(255,255,255,0.4)" />
+          </TouchableOpacity>
+        </View>
       </View>
     </View>
+  );
+
+  const BottomNav = () => (
+    <View style={styles.bottomNav}>
+      {navItems.map((item) => (
+        <TouchableOpacity
+          key={item.id}
+          onPress={() => setView(item.id)}
+          style={styles.bottomNavItem}
+        >
+          <item.icon 
+            size={22} 
+            color={currentView === item.id ? "#fff" : "rgba(255,255,255,0.4)"} 
+          />
+          <Text style={[
+            styles.bottomNavLabel,
+            currentView === item.id && styles.bottomNavLabelActive
+          ]}>
+            {item.label === 'Library' ? 'Home' : item.label.split(' ')[0]}
+          </Text>
+        </TouchableOpacity>
+      ))}
+    </View>
+  );
+
+  return (
+    <SafeAreaProvider>
+      <SafeAreaView 
+        style={[
+          styles.container, 
+          { flexDirection: !isMobile ? 'row' : 'column' }
+        ]} 
+        edges={isMobile ? ['bottom'] : []}
+      >
+        {!isMobile && <Sidebar />}
+        <View style={styles.main}>
+          {children}
+        </View>
+        {isMobile && <BottomNav />}
+      </SafeAreaView>
+    </SafeAreaProvider>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    flexDirection: 'row',
     backgroundColor: '#0a0a0a',
   },
   sidebar: {
@@ -207,5 +242,27 @@ const styles = StyleSheet.create({
   },
   main: {
     flex: 1,
+  },
+  bottomNav: {
+    flexDirection: 'row',
+    backgroundColor: '#0a0a0a',
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(255,255,255,0.1)',
+    paddingBottom: Platform.OS === 'ios' ? 20 : 10,
+    paddingTop: 10,
+  },
+  bottomNavItem: {
+    flex: 1,
+    alignItems: 'center',
+    gap: 4,
+  },
+  bottomNavLabel: {
+    fontSize: 10,
+    color: 'rgba(255,255,255,0.4)',
+    fontWeight: 'bold',
+    letterSpacing: 0.5,
+  },
+  bottomNavLabelActive: {
+    color: '#fff',
   },
 });

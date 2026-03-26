@@ -4,6 +4,7 @@ import { useStore } from '../store/useStore';
 import { ChevronLeft, Zap, FileText, Copy, Download, Sparkles, X } from 'lucide-react-native';
 import * as DocumentPicker from 'expo-document-picker';
 import { GoogleGenAI } from '@google/genai';
+import { uriToBase64 } from '../lib/blob-utils';
 import { PDFDocument as PDFLib, StandardFonts, rgb } from 'pdf-lib';
 import { savePdf } from '../lib/savePdf';
 
@@ -42,13 +43,7 @@ export default function Transcription({ setView }: TranscriptionProps) {
     try {
       const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
 
-      const response = await fetch(file.uri);
-      const blob = await response.blob();
-      const base64 = await new Promise<string>((resolve) => {
-        const reader = new FileReader();
-        reader.onloadend = () => resolve(reader.result as string);
-        reader.readAsDataURL(blob);
-      });
+      const base64 = await uriToBase64(file.uri);
 
       const prompt = "Please transcribe this document accurately. If it's a PDF, extract all text. If it's an image, perform OCR. Return only the transcribed text.";
       
@@ -57,7 +52,7 @@ export default function Transcription({ setView }: TranscriptionProps) {
         contents: [{
           parts: [
             { text: prompt },
-            { inlineData: { data: base64.split(',')[1], mimeType: (file.mimeType as string) || 'application/pdf' } }
+            { inlineData: { data: base64, mimeType: (file.mimeType as string) || 'application/pdf' } }
           ]
         }]
       });
