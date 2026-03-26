@@ -1,0 +1,8 @@
+{
+  "name": "PDFab",
+  "description": "The ultimate PDF workspace with AI transcription, annotations, and reflow mode.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone"
+  ]
+}

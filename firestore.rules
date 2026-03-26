@@ -1,0 +1,78 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Helper Functions
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function isDocOwner(docData) {
+      return isAuthenticated() && request.auth.uid == docData.ownerId;
+    }
+
+    function isAdmin() {
+      return isAuthenticated() &&
+        (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin' ||
+          (request.auth.token.email == "daniel989@gmail.com" && request.auth.token.email_verified == true));
+    }
+
+    // Domain Validators
+    function isValidUser(data) {
+      return data.keys().hasAll(['email', 'createdAt']) &&
+             data.email is string &&
+             data.createdAt is string;
+    }
+
+    function isValidDocument(data) {
+      return data.keys().hasAll(['ownerId', 'title', 'fileStoragePath']) &&
+             data.ownerId == request.auth.uid &&
+             data.title is string &&
+             data.fileStoragePath is string;
+    }
+
+    function isValidComment(data) {
+      return data.keys().hasAll(['documentId', 'content', 'authorId']) &&
+             data.authorId == request.auth.uid &&
+             data.documentId is string &&
+             data.content is string;
+    }
+
+    function isValidSignatureSlot(data) {
+      return data.keys().hasAll(['type', 'updatedAt']) &&
+             data.type in ['signature', 'initials'] &&
+             data.updatedAt is string;
+    }
+
+    // Match Rules
+    match /users/{uid} {
+      allow read: if isOwner(uid) || isAdmin();
+      allow create: if isOwner(uid) && isValidUser(request.resource.data);
+      allow update: if isOwner(uid) && isValidUser(request.resource.data);
+    }
+
+    match /documents/{documentId} {
+      allow read: if isDocOwner(resource.data) || isAdmin();
+      allow create: if isAuthenticated() && isValidDocument(request.resource.data);
+      allow update: if isDocOwner(resource.data) && isValidDocument(request.resource.data);
+      allow delete: if isDocOwner(resource.data);
+
+      match /comments/{commentId} {
+        allow read: if isDocOwner(get(/databases/$(database)/documents/documents/$(documentId)).data) || isAdmin();
+        allow create: if isAuthenticated() && isValidComment(request.resource.data);
+        allow update: if isAuthenticated() && (request.auth.uid == resource.data.authorId || isDocOwner(get(/databases/$(database)/documents/documents/$(documentId)).data));
+        allow delete: if isAuthenticated() && (request.auth.uid == resource.data.authorId || isDocOwner(get(/databases/$(database)/documents/documents/$(documentId)).data));
+      }
+    }
+
+    match /users/{uid}/signatureSlots/{slotId} {
+      allow read: if isOwner(uid) || isAdmin();
+      allow create: if isOwner(uid) && isValidSignatureSlot(request.resource.data);
+      allow update: if isOwner(uid) && isValidSignatureSlot(request.resource.data);
+      allow delete: if isOwner(uid);
+    }
+  }
+}

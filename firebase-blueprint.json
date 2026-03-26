@@ -1,0 +1,115 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "User profile information",
+      "type": "object",
+      "properties": {
+        "email": { "type": "string" },
+        "displayName": { "type": "string" },
+        "photoURL": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" },
+        "plan": { "type": "string", "enum": ["free", "pro"] }
+      },
+      "required": ["email", "createdAt"]
+    },
+    "Document": {
+      "title": "Document",
+      "description": "PDF document metadata and annotations",
+      "type": "object",
+      "properties": {
+        "ownerId": { "type": "string" },
+        "title": { "type": "string" },
+        "fileStoragePath": { "type": "string" },
+        "fileUrl": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" },
+        "isTrashed": { "type": "boolean" },
+        "isStarred": { "type": "boolean" },
+        "totalPages": { "type": "integer" },
+        "annotations": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": { "type": "string" },
+              "type": { "type": "string", "enum": ["TEXT", "HIGHLIGHT", "DRAW", "SIGNATURE", "COMMENT"] },
+              "pageIndex": { "type": "integer" },
+              "data": { "type": "object" }
+            }
+          }
+        }
+      },
+      "required": ["ownerId", "title", "fileStoragePath"]
+    },
+    "Comment": {
+      "title": "Comment",
+      "description": "Threaded comments for a document",
+      "type": "object",
+      "properties": {
+        "documentId": { "type": "string" },
+        "pageIndex": { "type": "integer" },
+        "position": {
+          "type": "object",
+          "properties": {
+            "x": { "type": "number" },
+            "y": { "type": "number" }
+          }
+        },
+        "content": { "type": "string" },
+        "authorId": { "type": "string" },
+        "authorName": { "type": "string" },
+        "authorAvatarUrl": { "type": "string" },
+        "isResolved": { "type": "boolean" },
+        "replies": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": { "type": "string" },
+              "body": { "type": "string" },
+              "createdAt": { "type": "string", "format": "date-time" },
+              "authorId": { "type": "string" },
+              "authorName": { "type": "string" }
+            }
+          }
+        },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["documentId", "content", "authorId"]
+    },
+    "SignatureSlot": {
+      "title": "SignatureSlot",
+      "description": "Saved signature or initials",
+      "type": "object",
+      "properties": {
+        "type": { "type": "string", "enum": ["signature", "initials"] },
+        "data": { "type": "string" },
+        "imageUrl": { "type": "string" },
+        "imageStoragePath": { "type": "string" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["type", "updatedAt"]
+    }
+  },
+  "firestore": {
+    "/users/{uid}": {
+      "schema": "User",
+      "description": "User profiles"
+    },
+    "/documents/{documentId}": {
+      "schema": "Document",
+      "description": "PDF documents"
+    },
+    "/documents/{documentId}/comments/{commentId}": {
+      "schema": "Comment",
+      "description": "Comments on a specific document"
+    },
+    "/users/{uid}/signatureSlots/{slotId}": {
+      "schema": "SignatureSlot",
+      "description": "User signature slots"
+    }
+  }
+}
