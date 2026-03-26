@@ -6,7 +6,7 @@ import * as pdfjs from 'pdfjs-dist';
 
 // Configure PDF.js worker
 if (typeof window !== 'undefined' && 'pdfjsLib' in window) {
-  (pdfjs as any).GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjs.version}/pdf.worker.min.js`;
+  (pdfjs as any).GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjs.version}/pdf.worker.min.mjs`;
 }
 
 const { width } = Dimensions.get('window');

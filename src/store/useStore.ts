@@ -48,6 +48,10 @@ interface AppState {
   setPenWidth: (width: number) => void;
   fontSize: number;
   setFontSize: (size: number) => void;
+
+  // Selection
+  selectedAnnotationId: string | null;
+  setSelectedAnnotation: (id: string | null) => void;
 }
 
 export const useStore = create<AppState>((set, get) => ({
@@ -141,4 +145,7 @@ export const useStore = create<AppState>((set, get) => ({
   setPenWidth: (width) => set({ penWidth: width }),
   fontSize: 16,
   setFontSize: (size) => set({ fontSize: size }),
+
+  selectedAnnotationId: null,
+  setSelectedAnnotation: (id) => set({ selectedAnnotationId: id }),
 }));

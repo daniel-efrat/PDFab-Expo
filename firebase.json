@@ -13,5 +13,8 @@
         "supportEmail": "daniel989@gmail.com"
       }
     }
+  },
+  "storage": {
+    "rules": "storage.rules"
   }
 }
