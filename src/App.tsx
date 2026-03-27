@@ -4,7 +4,9 @@
  */
 
 import React, { useEffect, useState } from 'react';
-import { View, ActivityIndicator, StyleSheet, Text } from 'react-native';
+import { View, ActivityIndicator, StyleSheet, Text, Image, Platform } from 'react-native';
+// @ts-ignore
+import logoSrc from '../public/logo.svg';
 import { onAuthStateChanged } from 'firebase/auth';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
 import { auth, db } from './firebase';
@@ -59,8 +61,9 @@ export default function App() {
   if (loading) {
     return (
       <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color="#ffffff" />
-        <Text style={styles.loadingText}>PDFOX</Text>
+        <Image source={Platform.OS === 'web' ? { uri: '/logo.svg' } : logoSrc} style={styles.loadingLogo} resizeMode="contain" />
+        <Text style={styles.loadingText}>PDFAB</Text>
+        <ActivityIndicator size="large" color="#ec6400" style={{ marginTop: 20 }} />
       </View>
     );
   }
@@ -95,9 +98,14 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  loadingLogo: {
+    width: 80,
+    height: 80,
+    borderRadius: 20,
+  },
   loadingText: {
     color: '#ffffff',
-    marginTop: 20,
+    marginTop: 16,
     fontSize: 24,
     fontWeight: '900',
     fontStyle: 'italic',

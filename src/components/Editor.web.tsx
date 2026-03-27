@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, ActivityIndicator, Dimensions, Modal, TextInput } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, ActivityIndicator, Dimensions, Modal, TextInput, useWindowDimensions, Platform } from 'react-native';
 import { useStore } from '../store/useStore';
-import { ChevronLeft, Save, Download, Type, PenTool, MessageSquare, MousePointer2, ZoomIn, ZoomOut, Undo2, Redo2, FileText, Layers, Zap, Pen, X, Check, Trash2 } from 'lucide-react-native';
+import { ChevronLeft, Save, Download, Type, PenTool, MessageSquare, MousePointer2, ZoomIn, ZoomOut, Undo2, Redo2, FileText, Layers, Zap, Pen, X, Check, Trash2, Home, Highlighter } from 'lucide-react-native';
 import * as pdfjs from 'pdfjs-dist';
 import { PDFDocument as PDFLib } from 'pdf-lib';
 
@@ -10,7 +10,7 @@ import { db } from '../firebase';
 import { doc, updateDoc } from 'firebase/firestore';
 import { savePdf } from '../lib/savePdf';
 
-const { width, height } = Dimensions.get('window');
+const SIDEBAR_WIDTH = 260;
 
 let _annId = 0;
 const nextId = () => `ann_${Date.now()}_${++_annId}`;
@@ -28,11 +28,13 @@ export default function Editor({ setView }: EditorProps) {
     selectedAnnotationId, setSelectedAnnotation,
   } = useStore();
 
+  const { width: winWidth, height: winHeight } = useWindowDimensions();
   const [pdf, setPdf] = useState<any>(null);
   const [loading, setLoading] = useState(true);
-  const [zoom, setZoom] = useState(1);
+  const [zoom, setZoom] = useState(0.6);
   const [currentPage, setCurrentPage] = useState(0);
   const [saving, setSaving] = useState(false);
+  const [pageAspectRatios, setPageAspectRatios] = useState<number[]>([]);
 
   // Signature modal
   const [showSigModal, setShowSigModal] = useState(false);
@@ -47,6 +49,15 @@ export default function Editor({ setView }: EditorProps) {
         const pdfDoc = await loadingTask.promise;
         setPdf(pdfDoc);
         setAnnotations(currentDocument.annotations || []);
+
+        // Read aspect ratio of each page
+        const ratios: number[] = [];
+        for (let i = 1; i <= pdfDoc.numPages; i++) {
+          const page = await pdfDoc.getPage(i);
+          const vp = page.getViewport({ scale: 1 });
+          ratios.push(vp.height / vp.width); // height-to-width ratio
+        }
+        setPageAspectRatios(ratios);
       } catch (err) {
         console.error('PDF load error:', err);
       } finally {
@@ -93,8 +104,16 @@ export default function Editor({ setView }: EditorProps) {
     );
   }
 
-  const pageW = width * 0.6 * zoom;
-  const pageH = height * 0.75 * zoom;
+  const isMobile = winWidth < 768;
+  const availableWidth = isMobile ? winWidth : winWidth - SIDEBAR_WIDTH;
+
+  // zoom controls the % of container width the page occupies
+  const getPageDimensions = (pageIndex: number) => {
+    const aspectRatio = pageAspectRatios[pageIndex] || (297 / 210); // fallback to A4
+    const pageW = availableWidth * zoom;
+    const pageH = pageW * aspectRatio;
+    return { pageW, pageH };
+  };
 
   return (
     <View style={styles.container}>
@@ -124,94 +143,170 @@ export default function Editor({ setView }: EditorProps) {
 
       {/* Pages */}
       <View style={styles.editorArea}>
-        <ScrollView
-          showsVerticalScrollIndicator={true}
-          contentContainerStyle={{ alignItems: 'center', paddingVertical: 20 }}
-          onScroll={(e) => {
-            const offsetY = e.nativeEvent.contentOffset.y;
-            const pgH = pageH + 20;
-            const page = Math.round(offsetY / pgH);
-            setCurrentPage(Math.min(page, (pdf?.numPages || 1) - 1));
-          }}
-          scrollEventThrottle={100}
-        >
-          {Array.from({ length: pdf?.numPages || 0 }).map((_, i) => (
-            <View key={i} style={{ marginBottom: 20, alignItems: 'center' }}>
-              <View style={[styles.pdfPage, { width: pageW, height: pageH }]}>
-                <PdfPageCanvas pdf={pdf} pageIndex={i} containerWidth={pageW} containerHeight={pageH} />
-                <AnnotationOverlay
-                  pageIndex={i}
-                  pageWidth={pageW}
-                  pageHeight={pageH}
-                  activeTool={activeTool}
-                  annotations={annotations.filter(a => a.pageIndex === i)}
-                  addAnnotation={addAnnotation}
-                  removeAnnotation={removeAnnotation}
-                  selectedAnnotationId={selectedAnnotationId}
-                  setSelectedAnnotation={setSelectedAnnotation}
-                  penColor={penColor}
-                  penWidth={penWidth}
-                  fontSize={fontSize}
-                  user={user}
-                  onSignatureRequest={(x, y) => {
-                    setSigPageIndex(i);
-                    setSigPosition({ x, y });
-                    setShowSigModal(true);
-                  }}
-                />
-              </View>
-            </View>
-          ))}
-        </ScrollView>
+        <div style={{
+          width: '100%', height: '100%',
+          overflow: 'auto',
+          WebkitOverflowScrolling: 'touch',
+        } as React.CSSProperties}>
+          <div style={{
+            display: 'inline-flex', flexDirection: 'column',
+            paddingTop: 20, paddingBottom: isMobile ? 130 : 20,
+            minWidth: '100%',
+            minHeight: '100%',
+          }}>
+            {Array.from({ length: pdf?.numPages || 0 }).map((_, i) => {
+              const { pageW, pageH } = getPageDimensions(i);
+              return (
+                <div key={i} style={{ marginBottom: 20, marginLeft: 'auto', marginRight: 'auto' }}>
+                  <View style={[styles.pdfPage, { width: pageW, height: pageH }]}>
+                    <PdfPageCanvas pdf={pdf} pageIndex={i} containerWidth={pageW} containerHeight={pageH} />
+                    <AnnotationOverlay
+                      pageIndex={i}
+                      pageWidth={pageW}
+                      pageHeight={pageH}
+                      activeTool={activeTool}
+                      annotations={annotations.filter(a => a.pageIndex === i)}
+                      addAnnotation={addAnnotation}
+                      removeAnnotation={removeAnnotation}
+                      selectedAnnotationId={selectedAnnotationId}
+                      setSelectedAnnotation={setSelectedAnnotation}
+                      penColor={penColor}
+                      penWidth={penWidth}
+                      fontSize={fontSize}
+                      user={user}
+                      onSignatureRequest={(x, y) => {
+                        setSigPageIndex(i);
+                        setSigPosition({ x, y });
+                        setShowSigModal(true);
+                      }}
+                    />
+                  </View>
+                </div>
+              );
+            })}
+          </div>
+        </div>
       </View>
 
-      {/* Toolbar */}
-      <View style={styles.toolbar}>
-        <ToolButton icon={MousePointer2} active={activeTool === 'SELECT'} onPress={() => setActiveTool('SELECT')} />
-        <ToolButton icon={Type} active={activeTool === 'TEXT'} onPress={() => setActiveTool('TEXT')} />
-        <ToolButton icon={Pen} active={activeTool === 'SIGNATURE'} onPress={() => setActiveTool('SIGNATURE')} />
-        <ToolButton icon={PenTool} active={activeTool === 'DRAW'} onPress={() => setActiveTool('DRAW')} />
-        <ToolButton icon={MessageSquare} active={activeTool === 'COMMENT'} onPress={() => setActiveTool('COMMENT')} />
-        <View style={styles.toolDivider} />
-        <TouchableOpacity style={styles.exportBtn} onPress={handleExport}>
-          <Download size={20} color="#000" />
-        </TouchableOpacity>
-      </View>
+      {/* ─── MOBILE BOTTOM TOOLBAR ─── */}
+      {isMobile && (
+        <div style={{
+          position: 'fixed', bottom: 0, left: 0, right: 0,
+          background: '#0a0a0a',
+          borderTop: '1px solid rgba(255,255,255,0.1)',
+          paddingBottom: 'env(safe-area-inset-bottom, 0px)',
+          zIndex: 100,
+        } as React.CSSProperties}>
+          {/* Zoom strip */}
+          <div style={{
+            display: 'flex', alignItems: 'center', gap: 8,
+            padding: '6px 16px',
+            borderBottom: '1px solid rgba(255,255,255,0.06)',
+          }}>
+            <TouchableOpacity onPress={() => setZoom(Math.max(0.3, zoom - 0.1))}>
+              <ZoomOut size={16} color="rgba(255,255,255,0.5)" />
+            </TouchableOpacity>
+            <input type="range" min="0.3" max="3" step="0.01" value={zoom}
+              onChange={(e) => setZoom(parseFloat(e.target.value))}
+              style={{
+                flex: 1, height: 3, appearance: 'none' as any,
+                WebkitAppearance: 'none', background: 'rgba(255,255,255,0.15)',
+                borderRadius: 2, outline: 'none',
+              }}
+            />
+            <TouchableOpacity onPress={() => setZoom(Math.min(3, zoom + 0.1))}>
+              <ZoomIn size={16} color="rgba(255,255,255,0.5)" />
+            </TouchableOpacity>
+            <span style={{ color: 'rgba(255,255,255,0.4)', fontSize: 10, fontWeight: 'bold', minWidth: 32, textAlign: 'center' }}>
+              {Math.round(zoom * 100)}%
+            </span>
+          </div>
+          {/* Tool buttons */}
+          <div style={{
+            display: 'flex', justifyContent: 'space-around', alignItems: 'center',
+            padding: '8px 4px',
+          }}>
+            {[
+              { id: 'home', icon: Home, label: 'Home', action: () => setView('dashboard') },
+              { id: 'TEXT', icon: Type, label: 'Text' },
+              { id: 'DRAW', icon: PenTool, label: 'Draw' },
+              { id: 'HIGHLIGHT', icon: Highlighter, label: 'Highlight' },
+              { id: 'SIGNATURE', icon: Pen, label: 'Fill & Sign' },
+              { id: 'COMMENT', icon: MessageSquare, label: 'Comment' },
+            ].map((tool) => {
+              const isActive = tool.id !== 'home' && activeTool === tool.id;
+              const Icon = tool.icon;
+              return (
+                <TouchableOpacity
+                  key={tool.id}
+                  onPress={tool.action || (() => setActiveTool(tool.id as any))}
+                  style={{ alignItems: 'center', gap: 2, paddingHorizontal: 4 } as any}
+                >
+                  <Icon size={20} color={isActive ? '#ec6400' : 'rgba(255,255,255,0.5)'} />
+                  <Text style={{
+                    fontSize: 9, fontWeight: '600',
+                    color: isActive ? '#ec6400' : 'rgba(255,255,255,0.4)',
+                  } as any}>{tool.label}</Text>
+                </TouchableOpacity>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
-      {/* Zoom Slider */}
-      <div style={{
-        position: 'fixed', bottom: 120, right: 30,
-        display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8,
-        background: 'rgba(22,22,22,0.9)', borderRadius: 16, padding: '12px 10px',
-        border: '1px solid rgba(255,255,255,0.1)', backdropFilter: 'blur(10px)',
-      }}>
-        <ZoomIn size={16} color="#fff" />
-        <input type="range" min="0.5" max="3" step="0.1" value={zoom}
-          onChange={(e) => setZoom(parseFloat(e.target.value))}
-          style={{
-            writingMode: 'vertical-lr' as any, direction: 'rtl',
-            width: 4, height: 120, appearance: 'none' as any,
-            WebkitAppearance: 'none', background: 'rgba(255,255,255,0.15)',
-            borderRadius: 2, outline: 'none', cursor: 'pointer',
-          }}
-        />
-        <ZoomOut size={16} color="#fff" />
-        <span style={{ color: 'rgba(255,255,255,0.5)', fontSize: 10, fontWeight: 'bold' }}>
-          {Math.round(zoom * 100)}%
-        </span>
-      </div>
+      {/* ─── DESKTOP FLOATING TOOLBAR ─── */}
+      {!isMobile && (
+        <View style={styles.toolbar}>
+          <ToolButton icon={MousePointer2} active={activeTool === 'SELECT'} onPress={() => setActiveTool('SELECT')} />
+          <ToolButton icon={Type} active={activeTool === 'TEXT'} onPress={() => setActiveTool('TEXT')} />
+          <ToolButton icon={Pen} active={activeTool === 'SIGNATURE'} onPress={() => setActiveTool('SIGNATURE')} />
+          <ToolButton icon={PenTool} active={activeTool === 'DRAW'} onPress={() => setActiveTool('DRAW')} />
+          <ToolButton icon={MessageSquare} active={activeTool === 'COMMENT'} onPress={() => setActiveTool('COMMENT')} />
+          <View style={styles.toolDivider} />
+          <TouchableOpacity style={styles.exportBtn} onPress={handleExport}>
+            <Download size={20} color="#000" />
+          </TouchableOpacity>
+        </View>
+      )}
 
-      {/* Quick Access */}
-      <View style={styles.quickAccess}>
-        <TouchableOpacity style={styles.quickBtn} onPress={() => setView('reflow')}>
-          <Layers size={18} color="#fff" />
-          <Text style={styles.quickText}>REFLOW</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.quickBtn} onPress={() => setView('transcription')}>
-          <Zap size={18} color="#fff" />
-          <Text style={styles.quickText}>AI</Text>
-        </TouchableOpacity>
-      </View>
+      {/* ─── DESKTOP ZOOM SLIDER ─── */}
+      {!isMobile && (
+        <div style={{
+          position: 'fixed', bottom: 120, right: 30,
+          display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8,
+          background: 'rgba(22,22,22,0.9)', borderRadius: 16, padding: '12px 10px',
+          border: '1px solid rgba(255,255,255,0.1)', backdropFilter: 'blur(10px)',
+        }}>
+          <ZoomIn size={16} color="#fff" />
+          <input type="range" min="0.3" max="3" step="0.01" value={zoom}
+            onChange={(e) => setZoom(parseFloat(e.target.value))}
+            style={{
+              writingMode: 'vertical-lr' as any, direction: 'rtl',
+              width: 4, height: 120, appearance: 'none' as any,
+              WebkitAppearance: 'none', background: 'rgba(255,255,255,0.15)',
+              borderRadius: 2, outline: 'none', cursor: 'pointer',
+            }}
+          />
+          <ZoomOut size={16} color="#fff" />
+          <span style={{ color: 'rgba(255,255,255,0.5)', fontSize: 10, fontWeight: 'bold' }}>
+            {Math.round(zoom * 100)}%
+          </span>
+        </div>
+      )}
+
+      {/* ─── DESKTOP QUICK ACCESS ─── */}
+      {!isMobile && (
+        <View style={styles.quickAccess}>
+          <TouchableOpacity style={styles.quickBtn} onPress={() => setView('reflow')}>
+            <Layers size={18} color="#fff" />
+            <Text style={styles.quickText}>REFLOW</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.quickBtn} onPress={() => setView('transcription')}>
+            <Zap size={18} color="#fff" />
+            <Text style={styles.quickText}>AI</Text>
+          </TouchableOpacity>
+        </View>
+      )}
 
       {/* Signature Modal */}
       {showSigModal && (
@@ -752,47 +847,55 @@ function PdfPageCanvas({ pdf, pageIndex, containerWidth, containerHeight }: {
 }) {
   const canvasRef = React.useRef<HTMLCanvasElement>(null);
 
+  const renderIdRef = React.useRef(0);
+
   React.useEffect(() => {
     if (!pdf || !canvasRef.current) return;
-    let cancelled = false;
+    const currentRenderId = ++renderIdRef.current;
 
     const renderPage = async () => {
       try {
         const page = await pdf.getPage(pageIndex + 1);
-        if (cancelled) return;
+        if (currentRenderId !== renderIdRef.current) return;
         const canvas = canvasRef.current;
         if (!canvas) return;
 
         const viewport = page.getViewport({ scale: 1 });
-        const scaleX = containerWidth / viewport.width;
-        const scaleY = containerHeight / viewport.height;
-        const scale = Math.min(scaleX, scaleY);
-        const scaledViewport = page.getViewport({ scale });
+        const dpr = window.devicePixelRatio || 1;
+        const cssScale = containerWidth / viewport.width;
+        const renderScale = cssScale * dpr;
+        const scaledViewport = page.getViewport({ scale: renderScale });
 
+        // Set canvas buffer to high-res, CSS to display size
         canvas.width = scaledViewport.width;
         canvas.height = scaledViewport.height;
-        canvas.style.width = `${scaledViewport.width}px`;
-        canvas.style.height = `${scaledViewport.height}px`;
+        canvas.style.width = `${containerWidth}px`;
+        canvas.style.height = `${Math.round(containerWidth * (viewport.height / viewport.width))}px`;
 
         const ctx = canvas.getContext('2d');
         if (!ctx) return;
+        // Reset transform to prevent flipping
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+
         await page.render({ canvasContext: ctx, viewport: scaledViewport }).promise;
       } catch (err) {
-        console.error(`Error rendering page ${pageIndex + 1}:`, err);
+        if (currentRenderId === renderIdRef.current) {
+          console.error(`Error rendering page ${pageIndex + 1}:`, err);
+        }
       }
     };
 
     renderPage();
-    return () => { cancelled = true; };
+    return () => { renderIdRef.current++; };
   }, [pdf, pageIndex, containerWidth, containerHeight]);
 
   return (
     <div style={{
       width: '100%', height: '100%',
-      display: 'flex', alignItems: 'center', justifyContent: 'center',
       backgroundColor: '#fff', overflow: 'hidden',
     }}>
-      <canvas ref={canvasRef} />
+      <canvas ref={canvasRef} style={{ display: 'block' }} />  
     </div>
   );
 }
@@ -847,7 +950,7 @@ const styles = StyleSheet.create({
   },
   title: {
     color: '#fff', fontSize: 16, fontWeight: 'bold',
-    maxWidth: width * 0.4,
+    maxWidth: 300,
   },
   subtitle: {
     color: 'rgba(255,255,255,0.4)',

@@ -1,5 +1,7 @@
 import React, { useState } from 'react';
 import { View, Text, TextInput, TouchableOpacity, StyleSheet, KeyboardAvoidingView, Platform, ScrollView, ActivityIndicator, Image } from 'react-native';
+// @ts-ignore
+import logoSrc from '../../public/logo.svg';
 import { signInWithEmailAndPassword, createUserWithEmailAndPassword, signInWithPopup } from 'firebase/auth';
 import { auth, googleProvider } from '../firebase';
 import { Mail, Lock, LogIn, UserPlus } from 'lucide-react-native';
@@ -50,10 +52,8 @@ export default function Auth() {
     >
       <ScrollView contentContainerStyle={styles.scrollContent}>
         <View style={styles.header}>
-          <View style={styles.logo}>
-            <Text style={styles.logoText}>P</Text>
-          </View>
-          <Text style={styles.title}>PDFOX</Text>
+          <Image source={Platform.OS === 'web' ? { uri: '/logo.svg' } : logoSrc} style={styles.logo} resizeMode="contain" />
+          <Text style={styles.title}>PDFAB</Text>
           <Text style={styles.subtitle}>THE ULTIMATE PDF WORKSPACE</Text>
         </View>
 
@@ -101,10 +101,10 @@ export default function Auth() {
             disabled={loading}
           >
             {loading ? (
-              <ActivityIndicator color="#000" />
+              <ActivityIndicator color="#fff" />
             ) : (
               <>
-                {isLogin ? <LogIn size={20} color="#000" /> : <UserPlus size={20} color="#000" />}
+                {isLogin ? <LogIn size={20} color="#fff" /> : <UserPlus size={20} color="#fff" />}
                 <Text style={styles.buttonText}>{isLogin ? 'SIGN IN' : 'CREATE ACCOUNT'}</Text>
               </>
             )}
@@ -152,17 +152,8 @@ const styles = StyleSheet.create({
   logo: {
     width: 64,
     height: 64,
-    backgroundColor: '#fff',
     borderRadius: 16,
-    alignItems: 'center',
-    justifyContent: 'center',
     marginBottom: 20,
-  },
-  logoText: {
-    fontSize: 40,
-    fontWeight: '900',
-    fontStyle: 'italic',
-    color: '#000',
   },
   title: {
     fontSize: 32,
@@ -222,7 +213,7 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   button: {
-    backgroundColor: '#fff',
+    backgroundColor: '#ec6400',
     height: 56,
     borderRadius: 12,
     flexDirection: 'row',
@@ -232,7 +223,7 @@ const styles = StyleSheet.create({
     marginTop: 10,
   },
   buttonText: {
-    color: '#000',
+    color: '#fff',
     fontSize: 16,
     fontWeight: 'bold',
   },

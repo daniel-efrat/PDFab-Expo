@@ -1,5 +1,7 @@
 import React from 'react';
 import { View, Text, TouchableOpacity, Image, StyleSheet, ScrollView, Platform, useWindowDimensions } from 'react-native';
+// @ts-ignore
+import logoSrc from '../../public/logo.svg';
 import { LayoutDashboard, FileText, Type, PenTool, Camera, LogOut, User as UserIcon } from 'lucide-react-native';
 import { auth } from '../firebase';
 import { useStore } from '../store/useStore';
@@ -27,10 +29,8 @@ export default function Layout({ children, currentView, setView }: LayoutProps) 
     <View style={styles.sidebar}>
       <View style={styles.header}>
         <View style={styles.logoContainer}>
-          <View style={styles.logo}>
-            <Text style={styles.logoText}>P</Text>
-          </View>
-          <Text style={styles.title}>PDFOX</Text>
+          <Image source={Platform.OS === 'web' ? { uri: '/logo.svg' } : logoSrc} style={styles.logo} resizeMode="contain" />
+          <Text style={styles.title}>PDFAB</Text>
         </View>
       </View>
 
@@ -46,7 +46,7 @@ export default function Layout({ children, currentView, setView }: LayoutProps) 
           >
             <item.icon 
               size={20} 
-              color={currentView === item.id ? "#000" : "rgba(255,255,255,0.4)"} 
+              color={currentView === item.id ? "#fff" : "rgba(255,255,255,0.4)"} 
             />
             <Text style={[
               styles.navLabel,
@@ -126,7 +126,7 @@ export default function Layout({ children, currentView, setView }: LayoutProps) 
         <View style={styles.main}>
           {children}
         </View>
-        {isMobile && <BottomNav />}
+        {isMobile && currentView !== 'editor' && currentView !== 'reflow' && <BottomNav />}
       </SafeAreaView>
     </SafeAreaProvider>
   );
@@ -154,16 +154,7 @@ const styles = StyleSheet.create({
   logo: {
     width: 32,
     height: 32,
-    backgroundColor: '#fff',
     borderRadius: 8,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  logoText: {
-    fontSize: 20,
-    fontWeight: '900',
-    fontStyle: 'italic',
-    color: '#000',
   },
   title: {
     fontSize: 20,
@@ -185,7 +176,7 @@ const styles = StyleSheet.create({
     marginBottom: 4,
   },
   navItemActive: {
-    backgroundColor: '#fff',
+    backgroundColor: '#ec6400',
   },
   navLabel: {
     fontSize: 14,
@@ -193,7 +184,7 @@ const styles = StyleSheet.create({
     fontWeight: '500',
   },
   navLabelActive: {
-    color: '#000',
+    color: '#fff',
     fontWeight: '600',
   },
   footer: {

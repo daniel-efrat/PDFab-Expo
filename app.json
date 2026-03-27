@@ -1,10 +1,14 @@
 {
   "expo": {
-    "name": "PDFox",
-    "slug": "pdfox",
+    "name": "PDFab",
+    "slug": "pdfab",
     "version": "1.0.0",
     "orientation": "portrait",
+    "icon": "./public/logo.svg",
     "userInterfaceStyle": "dark",
+    "splash": {
+      "backgroundColor": "#20282f"
+    },
     "assetBundlePatterns": [
       "**/*"
     ],
@@ -13,9 +17,12 @@
     },
     "android": {
       "adaptiveIcon": {
-        "backgroundColor": "#0a0a0a"
+        "foregroundImage": "./public/logo.svg",
+        "backgroundColor": "#20282f"
       }
     },
-    "web": {}
+    "web": {
+      "favicon": "./public/logo.svg"
+    }
   }
 }
