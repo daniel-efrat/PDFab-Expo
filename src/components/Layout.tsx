@@ -31,7 +31,7 @@ export default function Layout({ children, currentView, setView }: LayoutProps) 
       <View style={styles.header}>
         <View style={styles.logoContainer}>
           <Image source={Platform.OS === 'web' ? { uri: '/logo.svg' } : logoSrc} style={styles.logo} resizeMode="contain" />
-          <Text style={styles.title}>PDFAB</Text>
+          <Text style={styles.title}>PDFab</Text>
         </View>
       </View>
 

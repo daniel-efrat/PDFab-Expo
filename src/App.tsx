@@ -63,7 +63,7 @@ export default function App() {
     return (
       <View style={styles.loadingContainer}>
         <Image source={Platform.OS === 'web' ? { uri: '/logo.svg' } : logoSrc} style={styles.loadingLogo} resizeMode="contain" />
-        <Text style={styles.loadingText}>PDFAB</Text>
+        <Text style={styles.loadingText}>PDFab</Text>
         <ActivityIndicator size="large" color="#ec6400" style={{ marginTop: 20 }} />
       </View>
     );

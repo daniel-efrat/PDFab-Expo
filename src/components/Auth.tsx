@@ -55,7 +55,7 @@ export default function Auth() {
         <ScrollView contentContainerStyle={styles.scrollContent}>
         <View style={styles.header}>
           <Image source={Platform.OS === 'web' ? { uri: '/logo.svg' } : logoSrc} style={styles.logo} resizeMode="contain" />
-          <Text style={styles.title}>PDFAB</Text>
+          <Text style={styles.title}>PDFab</Text>
           <Text style={styles.subtitle}>THE ULTIMATE PDF WORKSPACE</Text>
         </View>
 
