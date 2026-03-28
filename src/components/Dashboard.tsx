@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, FlatList, TextInput, ActivityIndicator, Image, ScrollView, Dimensions, useWindowDimensions, Modal, Alert } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, FlatList, TextInput, ActivityIndicator, useWindowDimensions, Modal } from 'react-native';
 import { collection, query, where, orderBy, onSnapshot, addDoc, updateDoc, doc, deleteDoc } from 'firebase/firestore';
 import { ref, getDownloadURL } from 'firebase/storage';
 import { db, storage, auth } from '../firebase';
@@ -171,12 +171,16 @@ export default function Dashboard({ setView }: DashboardProps) {
     <SafeAreaView style={styles.container} edges={['top']}>
       {/* Header */}
       <View style={styles.header}>
-        <View>
+        <View style={styles.headerContent}>
           <Text style={styles.welcome}>Welcome back, {user?.displayName?.split(' ')[0] || 'User'}</Text>
           <Text style={styles.headerSubtitle}>YOUR PDF WORKSPACE</Text>
         </View>
-        <TouchableOpacity onPress={() => auth.signOut()}>
-          <LogOut size={20} color="rgba(255,255,255,0.4)" />
+        <TouchableOpacity
+          onPress={() => auth.signOut()}
+          style={[styles.logoutButton, isMobile && styles.logoutButtonMobile]}
+        >
+          <LogOut size={18} color="#fff" />
+          {isMobile && <Text style={styles.logoutLabel}>LOG OUT</Text>}
         </TouchableOpacity>
       </View>
 
@@ -311,6 +315,10 @@ const styles = StyleSheet.create({
     marginBottom: 20,
     marginTop: 10,
   },
+  headerContent: {
+    flex: 1,
+    paddingRight: 12,
+  },
   welcome: {
     color: '#fff',
     fontSize: 20,
@@ -322,6 +330,28 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     letterSpacing: 1,
     marginTop: 2,
+  },
+  logoutButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.08)',
+  },
+  logoutButtonMobile: {
+    width: 'auto',
+    flexDirection: 'row',
+    gap: 8,
+    paddingHorizontal: 14,
+  },
+  logoutLabel: {
+    color: '#fff',
+    fontSize: 11,
+    fontWeight: 'bold',
+    letterSpacing: 0.8,
   },
   searchBar: {
     flexDirection: 'row',

@@ -10,6 +10,7 @@ import { collection, addDoc } from 'firebase/firestore';
 import { ref, getDownloadURL } from 'firebase/storage';
 import { PDFDocument as PDFLib } from 'pdf-lib';
 import { uploadFileToFirebase } from '../lib/firebase-upload';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
 const { width, height } = Dimensions.get('window');
 
@@ -103,22 +104,22 @@ export default function Scanner({ setView }: ScannerProps) {
   };
 
   if (!permission) {
-    return <View style={styles.container} />;
+    return <SafeAreaView style={styles.container} edges={['top']} />;
   }
 
   if (!permission.granted) {
     return (
-      <View style={styles.container}>
+      <SafeAreaView style={styles.container} edges={['top']}>
         <Text style={styles.permissionText}>We need your permission to show the camera</Text>
         <TouchableOpacity style={styles.permissionButton} onPress={requestPermission}>
           <Text style={styles.permissionButtonText}>Grant Permission</Text>
         </TouchableOpacity>
-      </View>
+      </SafeAreaView>
     );
   }
 
   return (
-    <View style={styles.container}>
+    <SafeAreaView style={styles.container} edges={['top']}>
       <View style={styles.header}>
         <TouchableOpacity onPress={() => setView('dashboard')} style={styles.backButton}>
           <ChevronLeft size={24} color="#fff" />
@@ -179,7 +180,7 @@ export default function Scanner({ setView }: ScannerProps) {
           </View>
         )}
       </View>
-    </View>
+    </SafeAreaView>
   );
 }
 
@@ -187,7 +188,6 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#0a0a0a',
-    paddingTop: 60,
   },
   header: {
     flexDirection: 'row',

@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { useStore } from '../store/useStore';
 import { ChevronLeft, FileText, ZoomIn, ZoomOut } from 'lucide-react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
 interface ReflowProps {
   setView: (view: any) => void;
@@ -12,7 +13,7 @@ export default function Reflow({ setView }: ReflowProps) {
   const [fontSize, setFontSize] = useState(16);
 
   return (
-    <View style={styles.container}>
+    <SafeAreaView style={styles.container} edges={['top']}>
       <View style={styles.header}>
         <View style={styles.headerLeft}>
           <TouchableOpacity onPress={() => setView('editor')} style={styles.backButton}>
@@ -44,7 +45,7 @@ export default function Reflow({ setView }: ReflowProps) {
           Reflow text extraction depends on a browser-oriented PDF parser. Use the web build for full text reflow, or keep editing and exporting the PDF here in the simulator.
         </Text>
       </View>
-    </View>
+    </SafeAreaView>
   );
 }
 
@@ -52,7 +53,6 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#0a0a0a',
-    paddingTop: 60,
     paddingHorizontal: 25,
   },
   header: {

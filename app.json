@@ -4,7 +4,7 @@
     "slug": "pdfab",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./public/logo.svg",
+    "icon": "./assets/icon.png",
     "userInterfaceStyle": "dark",
     "splash": {
       "backgroundColor": "#20282f"
@@ -13,13 +13,15 @@
       "**/*"
     ],
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.anonymous.pdfab"
     },
     "android": {
       "adaptiveIcon": {
-        "foregroundImage": "./public/logo.svg",
+        "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#20282f"
-      }
+      },
+      "package": "com.anonymous.pdfab"
     },
     "web": {
       "favicon": "./public/logo.svg"

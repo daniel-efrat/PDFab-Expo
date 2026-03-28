@@ -17,6 +17,7 @@ export default function Layout({ children, currentView, setView }: LayoutProps) 
   const { user } = useStore();
   const { width } = useWindowDimensions();
   const isMobile = width < 768 || Platform.OS !== 'web';
+  const handleHomePress = () => setView('dashboard');
 
   const navItems = [
     { id: 'dashboard', label: 'Library', icon: LayoutDashboard },
@@ -95,7 +96,7 @@ export default function Layout({ children, currentView, setView }: LayoutProps) 
       {navItems.map((item) => (
         <TouchableOpacity
           key={item.id}
-          onPress={() => setView(item.id)}
+          onPress={() => item.id === 'dashboard' ? handleHomePress() : setView(item.id)}
           style={styles.bottomNavItem}
         >
           <item.icon 
@@ -110,6 +111,13 @@ export default function Layout({ children, currentView, setView }: LayoutProps) 
           </Text>
         </TouchableOpacity>
       ))}
+      <TouchableOpacity
+        onPress={() => auth.signOut()}
+        style={styles.bottomNavItem}
+      >
+        <LogOut size={22} color="rgba(255,255,255,0.4)" />
+        <Text style={styles.bottomNavLabel}>Logout</Text>
+      </TouchableOpacity>
     </View>
   );
 

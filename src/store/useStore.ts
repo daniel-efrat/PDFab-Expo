@@ -46,6 +46,8 @@ interface AppState {
   setPenColor: (color: string) => void;
   penWidth: number;
   setPenWidth: (width: number) => void;
+  fontFamily: string;
+  setFontFamily: (family: string) => void;
   fontSize: number;
   setFontSize: (size: number) => void;
 
@@ -143,6 +145,8 @@ export const useStore = create<AppState>((set, get) => ({
   setPenColor: (color) => set({ penColor: color }),
   penWidth: 2,
   setPenWidth: (width) => set({ penWidth: width }),
+  fontFamily: 'Inter',
+  setFontFamily: (family) => set({ fontFamily: family }),
   fontSize: 16,
   setFontSize: (size) => set({ fontSize: size }),
 

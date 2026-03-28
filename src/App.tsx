@@ -21,6 +21,7 @@ import Scanner from './components/Scanner';
 import Layout from './components/Layout';
 import { UserProfile } from './types';
 import { StatusBar } from 'expo-status-bar';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
 
 export default function App() {
   const { user, setUser } = useStore();
@@ -73,7 +74,7 @@ export default function App() {
   }
 
   return (
-    <View style={styles.container}>
+    <GestureHandlerRootView style={styles.container}>
       <StatusBar style="light" />
       <Layout currentView={view} setView={setView}>
         {view === 'dashboard' && <Dashboard setView={setView} />}
@@ -83,7 +84,7 @@ export default function App() {
         {view === 'signatures' && <Signatures setView={setView} />}
         {view === 'scanner' && <Scanner setView={setView} />}
       </Layout>
-    </View>
+    </GestureHandlerRootView>
   );
 }
 

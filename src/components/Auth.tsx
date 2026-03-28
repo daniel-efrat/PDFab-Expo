@@ -5,6 +5,7 @@ import logoSrc from '../../public/logo.svg';
 import { signInWithEmailAndPassword, createUserWithEmailAndPassword, signInWithPopup } from 'firebase/auth';
 import { auth, googleProvider } from '../firebase';
 import { Mail, Lock, LogIn, UserPlus } from 'lucide-react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
 export default function Auth() {
   const [isLogin, setIsLogin] = useState(true);
@@ -46,11 +47,12 @@ export default function Auth() {
   };
 
   return (
-    <KeyboardAvoidingView 
-      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-      style={styles.container}
-    >
-      <ScrollView contentContainerStyle={styles.scrollContent}>
+    <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
+      <KeyboardAvoidingView 
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        style={styles.container}
+      >
+        <ScrollView contentContainerStyle={styles.scrollContent}>
         <View style={styles.header}>
           <Image source={Platform.OS === 'web' ? { uri: '/logo.svg' } : logoSrc} style={styles.logo} resizeMode="contain" />
           <Text style={styles.title}>PDFAB</Text>
@@ -130,8 +132,9 @@ export default function Auth() {
             </Text>
           </TouchableOpacity>
         </View>
-      </ScrollView>
-    </KeyboardAvoidingView>
+        </ScrollView>
+      </KeyboardAvoidingView>
+    </SafeAreaView>
   );
 }
 

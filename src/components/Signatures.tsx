@@ -6,6 +6,7 @@ import { db, storage } from '../firebase';
 import { doc, setDoc, deleteDoc, collection, onSnapshot } from 'firebase/firestore';
 import { ref, uploadString, getDownloadURL, deleteObject } from 'firebase/storage';
 import { Svg, Path, G } from 'react-native-svg';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
 const { width } = Dimensions.get('window');
 
@@ -104,7 +105,7 @@ export default function Signatures({ setView }: SignaturesProps) {
   };
 
   return (
-    <View style={styles.container}>
+    <SafeAreaView style={styles.container} edges={['top']}>
       <View style={styles.header}>
         <TouchableOpacity onPress={() => setView('dashboard')} style={styles.backButton}>
           <ChevronLeft size={24} color="#fff" />
@@ -190,7 +191,7 @@ export default function Signatures({ setView }: SignaturesProps) {
           </View>
         </View>
       </Modal>
-    </View>
+    </SafeAreaView>
   );
 }
 
@@ -238,7 +239,6 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#0a0a0a',
-    paddingTop: 60,
   },
   header: {
     flexDirection: 'row',

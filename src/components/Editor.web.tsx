@@ -1,9 +1,11 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, ActivityIndicator, Dimensions, Modal, TextInput, useWindowDimensions, Platform } from 'react-native';
+import React, { useState, useEffect, useRef } from 'react';
+import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator, useWindowDimensions } from 'react-native';
 import { useStore } from '../store/useStore';
-import { ChevronLeft, Save, Download, Type, PenTool, MessageSquare, MousePointer2, ZoomIn, ZoomOut, Undo2, Redo2, FileText, Layers, Zap, Pen, X, Check, Trash2, Home, Highlighter } from 'lucide-react-native';
+import { ChevronLeft, Save, Download, Type, PenTool, MessageSquare, MousePointer2, ZoomIn, ZoomOut, Undo2, Redo2, Layers, Zap, Pen, Home, Highlighter } from 'lucide-react-native';
 import * as pdfjs from 'pdfjs-dist';
 import { PDFDocument as PDFLib } from 'pdf-lib';
+import { Circle, Group, Image as KonvaImage, Label, Layer, Line, Rect, Stage, Tag, Text as KonvaText } from 'react-konva';
+import type Konva from 'konva';
 
 pdfjs.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjs.version}/pdf.worker.min.mjs`;
 import { db } from '../firebase';
@@ -11,6 +13,9 @@ import { doc, updateDoc } from 'firebase/firestore';
 import { savePdf } from '../lib/savePdf';
 
 const SIDEBAR_WIDTH = 260;
+const FONT_FAMILIES = ['Inter', 'Georgia', 'Helvetica', 'Courier New', 'Times New Roman', 'Verdana'];
+const FONT_SIZES = [12, 14, 16, 18, 24, 32, 48];
+const TOOL_COLORS = ['#111827', '#000000', '#ef4444', '#ec6400', '#f59e0b', '#10b981', '#2563eb', '#7c3aed'];
 
 let _annId = 0;
 const nextId = () => `ann_${Date.now()}_${++_annId}`;
@@ -22,13 +27,13 @@ interface EditorProps {
 export default function Editor({ setView }: EditorProps) {
   const {
     user, currentDocument, activeTool, setActiveTool,
-    annotations, setAnnotations, addAnnotation, removeAnnotation,
+    annotations, setAnnotations, addAnnotation, updateAnnotation, removeAnnotation,
     undo, redo, canUndo, canRedo,
-    penColor, penWidth, fontSize,
+    penColor, setPenColor, penWidth, fontSize, setFontSize, fontFamily, setFontFamily,
     selectedAnnotationId, setSelectedAnnotation,
   } = useStore();
 
-  const { width: winWidth, height: winHeight } = useWindowDimensions();
+  const { width: winWidth } = useWindowDimensions();
   const [pdf, setPdf] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [zoom, setZoom] = useState(0.6);
@@ -106,6 +111,27 @@ export default function Editor({ setView }: EditorProps) {
 
   const isMobile = winWidth < 768;
   const availableWidth = isMobile ? winWidth : winWidth - SIDEBAR_WIDTH;
+  const selectedAnnotation = annotations.find((annotation) => annotation.id === selectedAnnotationId) || null;
+  const selectedTextAnnotation = selectedAnnotation?.type === 'TEXT' ? selectedAnnotation : null;
+  const showTextControls = activeTool === 'TEXT' || selectedTextAnnotation?.type === 'TEXT';
+  const activeFontFamily = selectedTextAnnotation?.data?.fontFamily || fontFamily;
+  const activeFontSize = selectedTextAnnotation?.data?.fontSize || fontSize;
+  const activeTextColor = selectedTextAnnotation?.data?.color || penColor;
+
+  const updateTextStyle = (updates: Record<string, any>) => {
+    if (selectedTextAnnotation) {
+      updateAnnotation(selectedTextAnnotation.id, {
+        data: {
+          ...selectedTextAnnotation.data,
+          ...updates,
+        },
+      });
+    }
+
+    if (typeof updates.color === 'string') setPenColor(updates.color);
+    if (typeof updates.fontSize === 'number') setFontSize(updates.fontSize);
+    if (typeof updates.fontFamily === 'string') setFontFamily(updates.fontFamily);
+  };
 
   // zoom controls the % of container width the page occupies
   const getPageDimensions = (pageIndex: number) => {
@@ -167,12 +193,15 @@ export default function Editor({ setView }: EditorProps) {
                       activeTool={activeTool}
                       annotations={annotations.filter(a => a.pageIndex === i)}
                       addAnnotation={addAnnotation}
+                      updateAnnotation={updateAnnotation}
                       removeAnnotation={removeAnnotation}
                       selectedAnnotationId={selectedAnnotationId}
                       setSelectedAnnotation={setSelectedAnnotation}
+                      setActiveTool={setActiveTool}
                       penColor={penColor}
                       penWidth={penWidth}
                       fontSize={fontSize}
+                      fontFamily={fontFamily}
                       user={user}
                       onSignatureRequest={(x, y) => {
                         setSigPageIndex(i);
@@ -187,6 +216,22 @@ export default function Editor({ setView }: EditorProps) {
           </div>
         </div>
       </View>
+
+      <ContextualToolMenu
+        title={selectedTextAnnotation ? 'Text Selection' : 'Text Tool'}
+        subtitle={selectedTextAnnotation ? 'Update the selected text object.' : 'Choose defaults for the next text annotation.'}
+        visible={showTextControls}
+        isMobile={isMobile}
+      >
+        <TextToolControls
+          fontFamily={activeFontFamily}
+          fontSize={activeFontSize}
+          color={activeTextColor}
+          onFontFamilyChange={(value) => updateTextStyle({ fontFamily: value })}
+          onFontSizeChange={(value) => updateTextStyle({ fontSize: value })}
+          onColorChange={(value) => updateTextStyle({ color: value })}
+        />
+      </ContextualToolMenu>
 
       {/* ─── MOBILE BOTTOM TOOLBAR ─── */}
       {isMobile && (
@@ -327,35 +372,235 @@ export default function Editor({ setView }: EditorProps) {
   );
 }
 
+function ContextualToolMenu({
+  title,
+  subtitle,
+  visible,
+  isMobile,
+  children,
+}: {
+  title: string;
+  subtitle?: string;
+  visible: boolean;
+  isMobile: boolean;
+  children: React.ReactNode;
+}) {
+  if (!visible) return null;
+
+  return (
+    <div
+      style={{
+        position: 'fixed',
+        top: isMobile ? 'auto' : 108,
+        bottom: isMobile ? 92 : 'auto',
+        left: isMobile ? 12 : '50%',
+        right: isMobile ? 12 : 'auto',
+        transform: isMobile ? 'none' : 'translateX(-50%)',
+        zIndex: 120,
+        minWidth: isMobile ? 'auto' : 360,
+        maxWidth: isMobile ? 'none' : 420,
+        padding: 16,
+        borderRadius: 18,
+        border: '1px solid rgba(255,255,255,0.1)',
+        background: 'rgba(18,18,24,0.92)',
+        backdropFilter: 'blur(18px)',
+        boxShadow: '0 18px 40px rgba(0,0,0,0.35)',
+      }}
+    >
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 2, marginBottom: 14 }}>
+        <span style={{ color: '#fff', fontSize: 13, fontWeight: 700, letterSpacing: 0.3 }}>{title}</span>
+        {subtitle && (
+          <span style={{ color: 'rgba(255,255,255,0.55)', fontSize: 12, lineHeight: 1.4 }}>
+            {subtitle}
+          </span>
+        )}
+      </div>
+      {children}
+    </div>
+  );
+}
+
+function TextToolControls({
+  fontFamily,
+  fontSize,
+  color,
+  onFontFamilyChange,
+  onFontSizeChange,
+  onColorChange,
+}: {
+  fontFamily: string;
+  fontSize: number;
+  color: string;
+  onFontFamilyChange: (value: string) => void;
+  onFontSizeChange: (value: number) => void;
+  onColorChange: (value: string) => void;
+}) {
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 104px', gap: 12 }}>
+        <ControlField label="Font">
+          <select
+            value={fontFamily}
+            onChange={(event) => onFontFamilyChange(event.target.value)}
+            style={controlSelectStyle}
+          >
+            {FONT_FAMILIES.map((family) => (
+              <option key={family} value={family}>{family}</option>
+            ))}
+          </select>
+        </ControlField>
+        <ControlField label="Size">
+          <select
+            value={fontSize}
+            onChange={(event) => onFontSizeChange(parseInt(event.target.value, 10))}
+            style={controlSelectStyle}
+          >
+            {FONT_SIZES.map((size) => (
+              <option key={size} value={size}>{size}px</option>
+            ))}
+          </select>
+        </ControlField>
+      </div>
+
+      <ControlField label="Color">
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', flex: 1 }}>
+            {TOOL_COLORS.map((swatch) => (
+              <button
+                key={swatch}
+                type="button"
+                onClick={() => onColorChange(swatch)}
+                style={{
+                  width: 24,
+                  height: 24,
+                  borderRadius: 999,
+                  border: color === swatch ? '2px solid #fff' : '2px solid rgba(255,255,255,0.18)',
+                  background: swatch,
+                  cursor: 'pointer',
+                  boxShadow: color === swatch ? '0 0 0 2px rgba(99,102,241,0.5)' : 'none',
+                }}
+              />
+            ))}
+          </div>
+          <input
+            type="color"
+            value={normalizeHexColor(color)}
+            onChange={(event) => onColorChange(event.target.value)}
+            style={{
+              width: 38,
+              height: 38,
+              border: '1px solid rgba(255,255,255,0.12)',
+              borderRadius: 10,
+              background: 'transparent',
+              cursor: 'pointer',
+            }}
+          />
+        </div>
+      </ControlField>
+
+      <div
+        style={{
+          borderRadius: 14,
+          border: '1px solid rgba(255,255,255,0.08)',
+          background: 'rgba(255,255,255,0.04)',
+          padding: '12px 14px',
+        }}
+      >
+        <div style={{ color: 'rgba(255,255,255,0.45)', fontSize: 10, letterSpacing: 1.1, marginBottom: 8 }}>
+          PREVIEW
+        </div>
+        <div style={{ color, fontFamily, fontSize, lineHeight: 1.2 }}>
+          The quick brown fox
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ControlField({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+      <span style={{ color: 'rgba(255,255,255,0.55)', fontSize: 11, fontWeight: 700, letterSpacing: 0.8 }}>
+        {label.toUpperCase()}
+      </span>
+      {children}
+    </label>
+  );
+}
+
+const controlSelectStyle: React.CSSProperties = {
+  width: '100%',
+  height: 38,
+  borderRadius: 10,
+  border: '1px solid rgba(255,255,255,0.12)',
+  background: 'rgba(255,255,255,0.06)',
+  color: '#fff',
+  padding: '0 12px',
+  outline: 'none',
+};
+
+function normalizeHexColor(value: string) {
+  if (/^#[0-9a-fA-F]{6}$/.test(value)) {
+    return value;
+  }
+  return '#111827';
+}
+
 /* ─── Annotation Overlay ─── */
 function AnnotationOverlay({
   pageIndex, pageWidth, pageHeight, activeTool, annotations,
-  addAnnotation, removeAnnotation, selectedAnnotationId, setSelectedAnnotation,
-  penColor, penWidth, fontSize, user, onSignatureRequest,
+  addAnnotation, updateAnnotation, removeAnnotation, selectedAnnotationId, setSelectedAnnotation,
+  setActiveTool,
+  penColor, penWidth, fontSize, fontFamily, user, onSignatureRequest,
 }: any) {
-  const overlayRef = useRef<HTMLDivElement>(null);
+  const stageRef = useRef<Konva.Stage | null>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
 
   // Drawing state
   const [isDrawing, setIsDrawing] = useState(false);
   const [drawPoints, setDrawPoints] = useState<{ x: number; y: number }[]>([]);
 
   // Text input state
-  const [textInput, setTextInput] = useState<{ x: number; y: number; value: string } | null>(null);
+  const [textInput, setTextInput] = useState<{ x: number; y: number; value: string; annotationId?: string } | null>(null);
 
   // Comment input state
   const [commentInput, setCommentInput] = useState<{ x: number; y: number; value: string } | null>(null);
 
-  const getPos = (e: React.MouseEvent) => {
-    const rect = overlayRef.current?.getBoundingClientRect();
-    if (!rect) return { x: 0, y: 0 };
+  useEffect(() => {
+    if (textInput) {
+      window.requestAnimationFrame(() => inputRef.current?.focus());
+    }
+  }, [textInput]);
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (!selectedAnnotationId || textInput || commentInput) return;
+      if (event.key === 'Backspace' || event.key === 'Delete') {
+        removeAnnotation(selectedAnnotationId);
+        setSelectedAnnotation(null);
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [commentInput, removeAnnotation, selectedAnnotationId, setSelectedAnnotation, textInput]);
+
+  const getStagePosition = () => {
+    const pointer = stageRef.current?.getPointerPosition();
+    if (!pointer) return null;
     return {
-      x: ((e.clientX - rect.left) / rect.width) * 100,
-      y: ((e.clientY - rect.top) / rect.height) * 100,
+      x: Math.max(0, Math.min(100, (pointer.x / pageWidth) * 100)),
+      y: Math.max(0, Math.min(100, (pointer.y / pageHeight) * 100)),
     };
   };
 
-  const handleMouseDown = (e: React.MouseEvent) => {
-    const pos = getPos(e);
+  const handleStagePointerDown = (event: any) => {
+    if (event.target !== event.target.getStage()) {
+      return;
+    }
+
+    const pos = getStagePosition();
+    if (!pos) return;
 
     if (activeTool === 'TEXT') {
       setTextInput({ x: pos.x, y: pos.y, value: '' });
@@ -373,13 +618,14 @@ function AnnotationOverlay({
     }
   };
 
-  const handleMouseMove = (e: React.MouseEvent) => {
+  const handleStagePointerMove = () => {
     if (!isDrawing) return;
-    const pos = getPos(e);
+    const pos = getStagePosition();
+    if (!pos) return;
     setDrawPoints(prev => [...prev, pos]);
   };
 
-  const handleMouseUp = () => {
+  const handleStagePointerUp = () => {
     if (isDrawing && drawPoints.length > 1) {
       addAnnotation({
         id: nextId(),
@@ -394,12 +640,28 @@ function AnnotationOverlay({
 
   const commitText = () => {
     if (textInput && textInput.value.trim()) {
-      addAnnotation({
-        id: nextId(),
-        type: 'TEXT',
-        pageIndex,
-        data: { x: textInput.x, y: textInput.y, text: textInput.value, fontSize, color: penColor },
-      });
+      if (textInput.annotationId) {
+        const existingAnnotation = annotations.find((annotation: any) => annotation.id === textInput.annotationId);
+        updateAnnotation(textInput.annotationId, {
+          data: {
+            ...existingAnnotation?.data,
+            text: textInput.value,
+            x: textInput.x,
+            y: textInput.y,
+          },
+        });
+        setSelectedAnnotation(textInput.annotationId);
+      } else {
+        const annotationId = nextId();
+        addAnnotation({
+          id: annotationId,
+          type: 'TEXT',
+          pageIndex,
+          data: { x: textInput.x, y: textInput.y, text: textInput.value, fontSize, color: penColor, fontFamily },
+        });
+        setSelectedAnnotation(annotationId);
+      }
+      setActiveTool('SELECT');
     }
     setTextInput(null);
   };
@@ -420,20 +682,13 @@ function AnnotationOverlay({
     setCommentInput(null);
   };
 
-  const pointsToSvgPath = (pts: { x: number; y: number }[]) => {
-    if (pts.length < 2) return '';
-    return pts.map((p, i) =>
-      `${i === 0 ? 'M' : 'L'} ${(p.x / 100) * pageWidth} ${(p.y / 100) * pageHeight}`
-    ).join(' ');
-  };
+  const drawingPoints = drawPoints.flatMap((point) => [
+    (point.x / 100) * pageWidth,
+    (point.y / 100) * pageHeight,
+  ]);
 
   return (
     <div
-      ref={overlayRef}
-      onMouseDown={handleMouseDown}
-      onMouseMove={handleMouseMove}
-      onMouseUp={handleMouseUp}
-      onMouseLeave={handleMouseUp}
       style={{
         position: 'absolute', inset: 0,
         cursor: activeTool === 'SELECT' ? 'default'
@@ -443,44 +698,81 @@ function AnnotationOverlay({
         zIndex: 10,
       }}
     >
-      {/* Render existing annotations */}
-      {annotations.map((ann: any) => (
-        <RenderedAnnotation
-          key={ann.id}
-          annotation={ann}
-          pageWidth={pageWidth}
-          pageHeight={pageHeight}
-          isSelected={selectedAnnotationId === ann.id}
-          onSelect={() => {
-            if (activeTool === 'SELECT') setSelectedAnnotation(ann.id);
-          }}
-          onDelete={() => removeAnnotation(ann.id)}
-        />
-      ))}
-
-      {/* Active drawing stroke */}
-      {isDrawing && drawPoints.length > 1 && (
-        <svg style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', pointerEvents: 'none' }}>
-          <path
-            d={pointsToSvgPath(drawPoints)}
-            stroke={penColor}
-            strokeWidth={penWidth}
-            fill="none"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          />
-        </svg>
-      )}
+      <Stage
+        ref={(node) => {
+          stageRef.current = node;
+        }}
+        width={pageWidth}
+        height={pageHeight}
+        onMouseDown={handleStagePointerDown}
+        onMousemove={handleStagePointerMove}
+        onMouseup={handleStagePointerUp}
+        onMouseleave={handleStagePointerUp}
+        onTouchStart={handleStagePointerDown}
+        onTouchMove={handleStagePointerMove}
+        onTouchEnd={handleStagePointerUp}
+        style={{ width: pageWidth, height: pageHeight }}
+      >
+        <Layer>
+          {annotations.map((annotation: any) => (
+            <RenderedAnnotation
+              key={annotation.id}
+              annotation={annotation}
+              pageWidth={pageWidth}
+              pageHeight={pageHeight}
+              isSelected={selectedAnnotationId === annotation.id}
+              onSelect={() => {
+                if (activeTool === 'SELECT') {
+                  setSelectedAnnotation(annotation.id);
+                }
+              }}
+              onDelete={() => {
+                removeAnnotation(annotation.id);
+                setSelectedAnnotation(null);
+              }}
+              onMove={(position: { x: number; y: number }) => {
+                updateAnnotation(annotation.id, {
+                  data: {
+                    ...annotation.data,
+                    x: position.x,
+                    y: position.y,
+                  },
+                });
+              }}
+              onEditText={() => {
+                if (annotation.type !== 'TEXT') return;
+                setTextInput({
+                  x: annotation.data.x,
+                  y: annotation.data.y,
+                  value: annotation.data.text || '',
+                  annotationId: annotation.id,
+                });
+                setSelectedAnnotation(annotation.id);
+              }}
+            />
+          ))}
+          {isDrawing && drawingPoints.length > 2 && (
+            <Line
+              points={drawingPoints}
+              stroke={penColor}
+              strokeWidth={penWidth}
+              lineCap="round"
+              lineJoin="round"
+              tension={0.15}
+            />
+          )}
+        </Layer>
+      </Stage>
 
       {/* Inline text input */}
       {textInput && (
         <div style={{
           position: 'absolute',
-          left: `${textInput.x}%`, top: `${textInput.y}%`,
+          left: `${(textInput.x / 100) * pageWidth}px`, top: `${(textInput.y / 100) * pageHeight}px`,
           transform: 'translate(-4px, -4px)',
         }}>
           <input
-            autoFocus
+            ref={inputRef}
             value={textInput.value}
             onChange={(e) => setTextInput({ ...textInput, value: e.target.value })}
             onBlur={commitText}
@@ -495,7 +787,7 @@ function AnnotationOverlay({
               color: penColor,
               outline: 'none',
               minWidth: 120,
-              fontFamily: 'inherit',
+              fontFamily,
             }}
           />
         </div>
@@ -505,7 +797,7 @@ function AnnotationOverlay({
       {commentInput && (
         <div style={{
           position: 'absolute',
-          left: `${commentInput.x}%`, top: `${commentInput.y}%`,
+          left: `${(commentInput.x / 100) * pageWidth}px`, top: `${(commentInput.y / 100) * pageHeight}px`,
           transform: 'translate(-12px, -12px)',
           zIndex: 20,
         }}>
@@ -564,169 +856,239 @@ function AnnotationOverlay({
   );
 }
 
-/* ─── Rendered Annotation ─── */
-function RenderedAnnotation({ annotation, pageWidth, pageHeight, isSelected, onSelect, onDelete }: any) {
+function RenderedAnnotation({
+  annotation,
+  pageWidth,
+  pageHeight,
+  isSelected,
+  onSelect,
+  onDelete,
+  onMove,
+  onEditText,
+}: any) {
   const { data, type } = annotation;
-  const baseStyle: React.CSSProperties = {
-    position: 'absolute',
-    left: `${data.x}%`,
-    top: `${data.y}%`,
-    cursor: 'pointer',
-  };
+  const commonDragProps = activeDragProps(type, data, pageWidth, pageHeight, onMove);
 
   if (type === 'TEXT') {
+    const x = (data.x / 100) * pageWidth;
+    const y = (data.y / 100) * pageHeight;
     return (
-      <div
-        onClick={(e) => { e.stopPropagation(); onSelect(); }}
-        style={{
-          ...baseStyle,
-          color: data.color || '#000',
-          fontSize: data.fontSize || 16,
-          fontWeight: 500,
-          userSelect: 'none',
-          padding: '2px 4px',
-          outline: isSelected ? '2px solid #6366f1' : 'none',
-          borderRadius: 3,
-          background: isSelected ? 'rgba(99,102,241,0.1)' : 'transparent',
+      <Group
+        x={x}
+        y={y}
+        onClick={(event) => {
+          event.cancelBubble = true;
+          onSelect();
         }}
+        onTap={(event) => {
+          event.cancelBubble = true;
+          onSelect();
+        }}
+        onDblClick={(event) => {
+          event.cancelBubble = true;
+          onEditText();
+        }}
+        {...commonDragProps}
       >
-        {data.text}
-        {isSelected && <DeleteBadge onDelete={onDelete} />}
-      </div>
+        {isSelected && (
+          <Rect
+            x={-4}
+            y={-4}
+            width={Math.max(40, ((data.text || '').length || 1) * ((data.fontSize || 16) * 0.6)) + 8}
+            height={(data.fontSize || 16) + 10}
+            fill="rgba(99,102,241,0.12)"
+            stroke="#6366f1"
+            strokeWidth={1}
+            cornerRadius={4}
+          />
+        )}
+        <KonvaText
+          text={data.text || ''}
+          fontFamily={data.fontFamily || 'Inter'}
+          fontSize={data.fontSize || 16}
+          fill={data.color || '#000'}
+          fontStyle="500"
+        />
+        {isSelected && <DeleteControl x={Math.max(48, ((data.text || '').length || 1) * ((data.fontSize || 16) * 0.6)) + 8} y={-12} onDelete={onDelete} />}
+      </Group>
     );
   }
 
   if (type === 'DRAW') {
-    const pts = data.points || [];
-    if (pts.length < 2) return null;
-    const pathD = pts.map((p: any, i: number) =>
-      `${i === 0 ? 'M' : 'L'} ${(p.x / 100) * pageWidth} ${(p.y / 100) * pageHeight}`
-    ).join(' ');
+    const points = (data.points || []).flatMap((point: any) => [
+      (point.x / 100) * pageWidth,
+      (point.y / 100) * pageHeight,
+    ]);
+    if (points.length < 4) return null;
     return (
-      <svg
-        onClick={(e) => { e.stopPropagation(); onSelect(); }}
-        style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', pointerEvents: 'all' }}
+      <Group
+        onClick={(event) => {
+          event.cancelBubble = true;
+          onSelect();
+        }}
+        onTap={(event) => {
+          event.cancelBubble = true;
+          onSelect();
+        }}
       >
         {isSelected && (
-          <path d={pathD} stroke="rgba(99,102,241,0.4)" strokeWidth={(data.strokeWidth || 2) + 8} fill="none" />
+          <Line
+            points={points}
+            stroke="rgba(99,102,241,0.35)"
+            strokeWidth={(data.strokeWidth || 2) + 10}
+            lineCap="round"
+            lineJoin="round"
+            tension={0.15}
+          />
         )}
-        <path
-          d={pathD}
+        <Line
+          points={points}
           stroke={data.color || '#000'}
           strokeWidth={data.strokeWidth || 2}
-          fill="none"
-          strokeLinecap="round"
-          strokeLinejoin="round"
+          lineCap="round"
+          lineJoin="round"
+          tension={0.15}
         />
-      </svg>
+      </Group>
     );
   }
 
   if (type === 'SIGNATURE') {
-    return (
-      <div
-        onClick={(e) => { e.stopPropagation(); onSelect(); }}
-        style={{
-          ...baseStyle,
-          outline: isSelected ? '2px solid #6366f1' : 'none',
-          borderRadius: 4,
-        }}
-      >
-        <img
-          src={data.imageDataUrl}
-          alt="Signature"
-          style={{ width: data.width || 200, height: data.height || 80, pointerEvents: 'none' }}
-          draggable={false}
-        />
-        {isSelected && <DeleteBadge onDelete={onDelete} />}
-      </div>
-    );
+    return <SignatureAnnotation annotation={annotation} pageWidth={pageWidth} pageHeight={pageHeight} isSelected={isSelected} onSelect={onSelect} onDelete={onDelete} onMove={onMove} />;
   }
 
   if (type === 'COMMENT') {
-    return <CommentPin data={data} isSelected={isSelected} onSelect={onSelect} onDelete={onDelete} />;
+    return <CommentAnnotation annotation={annotation} pageWidth={pageWidth} pageHeight={pageHeight} isSelected={isSelected} onSelect={onSelect} onDelete={onDelete} onMove={onMove} />;
   }
 
   return null;
 }
 
-/* ─── Comment Pin ─── */
-function CommentPin({ data, isSelected, onSelect, onDelete }: any) {
-  const [hovered, setHovered] = useState(false);
-  const show = isSelected || hovered;
+function activeDragProps(type: string, data: any, pageWidth: number, pageHeight: number, onMove: (position: { x: number; y: number }) => void) {
+  if (!['TEXT', 'SIGNATURE', 'COMMENT'].includes(type)) {
+    return {};
+  }
 
+  return {
+    draggable: true,
+    onDragEnd: (event: any) => {
+      const x = Math.max(0, Math.min(100, (event.target.x() / pageWidth) * 100));
+      const y = Math.max(0, Math.min(100, (event.target.y() / pageHeight) * 100));
+      event.target.position({
+        x: (x / 100) * pageWidth,
+        y: (y / 100) * pageHeight,
+      });
+      onMove({ x, y });
+    },
+  };
+}
+
+function DeleteControl({ x, y, onDelete }: { x: number; y: number; onDelete: () => void }) {
   return (
-    <div
-      style={{ position: 'absolute', left: `${data.x}%`, top: `${data.y}%`, transform: 'translate(-12px, -12px)', zIndex: 15 }}
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
+    <Group
+      x={x}
+      y={y}
+      onClick={(event) => {
+        event.cancelBubble = true;
+        onDelete();
+      }}
+      onTap={(event) => {
+        event.cancelBubble = true;
+        onDelete();
+      }}
     >
-      {/* Pin */}
-      <div
-        onClick={(e) => { e.stopPropagation(); onSelect(); }}
-        style={{
-          width: 28, height: 28,
-          borderRadius: 14,
-          background: isSelected ? '#6366f1' : '#f59e0b',
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          cursor: 'pointer',
-          boxShadow: '0 2px 8px rgba(0,0,0,0.3)',
-          border: '2px solid #fff',
-          transition: 'transform 0.15s',
-          transform: show ? 'scale(1.15)' : 'scale(1)',
-        }}
-      >
-        <span style={{ color: '#fff', fontSize: 14, fontWeight: 'bold' }}>💬</span>
-      </div>
-
-      {/* Popover */}
-      {show && (
-        <div style={{
-          position: 'absolute', left: 36, top: -8,
-          background: '#1a1a2e', border: '1px solid rgba(255,255,255,0.15)',
-          borderRadius: 10, padding: 12, width: 200,
-          boxShadow: '0 8px 32px rgba(0,0,0,0.5)',
-          zIndex: 20,
-        }}>
-          <div style={{ color: 'rgba(255,255,255,0.4)', fontSize: 10, fontWeight: 'bold', marginBottom: 4 }}>
-            {data.author || 'Anonymous'}
-          </div>
-          <div style={{ color: '#fff', fontSize: 13, lineHeight: '1.4' }}>
-            {data.text}
-          </div>
-          {isSelected && (
-            <button
-              onClick={(e) => { e.stopPropagation(); onDelete(); }}
-              style={{
-                marginTop: 8, background: 'rgba(239,68,68,0.2)',
-                border: '1px solid rgba(239,68,68,0.4)', borderRadius: 6,
-                padding: '3px 10px', color: '#ef4444', cursor: 'pointer',
-                fontSize: 11, fontWeight: 'bold',
-              }}
-            >Delete</button>
-          )}
-        </div>
-      )}
-    </div>
+      <Circle radius={10} fill="#ef4444" stroke="#fff" strokeWidth={2} />
+      <KonvaText text="x" fontSize={11} fill="#fff" x={-3.5} y={-5.5} />
+    </Group>
   );
 }
 
-/* ─── Delete Badge ─── */
-function DeleteBadge({ onDelete }: { onDelete: () => void }) {
+function CommentAnnotation({ annotation, pageWidth, pageHeight, isSelected, onSelect, onDelete, onMove }: any) {
+  const { data } = annotation;
+  const x = (data.x / 100) * pageWidth;
+  const y = (data.y / 100) * pageHeight;
   return (
-    <button
-      onClick={(e) => { e.stopPropagation(); onDelete(); }}
-      style={{
-        position: 'absolute', top: -10, right: -10,
-        width: 22, height: 22, borderRadius: 11,
-        background: '#ef4444', border: '2px solid #fff',
-        display: 'flex', alignItems: 'center', justifyContent: 'center',
-        cursor: 'pointer', padding: 0,
-        boxShadow: '0 2px 6px rgba(0,0,0,0.3)',
+    <Group
+      x={x}
+      y={y}
+      onClick={(event) => {
+        event.cancelBubble = true;
+        onSelect();
       }}
+      onTap={(event) => {
+        event.cancelBubble = true;
+        onSelect();
+      }}
+      {...activeDragProps('COMMENT', data, pageWidth, pageHeight, onMove)}
     >
-      <span style={{ color: '#fff', fontSize: 12, lineHeight: 1 }}>×</span>
-    </button>
+      <Circle radius={14} fill={isSelected ? '#6366f1' : '#f59e0b'} stroke="#fff" strokeWidth={2} />
+      <KonvaText text="?" fontSize={14} fill="#fff" x={-4} y={-7} />
+      {(isSelected) && (
+        <>
+          <Label x={20} y={-12}>
+            <Tag fill="#1a1a2e" stroke="rgba(255,255,255,0.15)" strokeWidth={1} cornerRadius={10} />
+            <KonvaText
+              text={`${data.author || 'Anonymous'}\n${data.text || ''}`}
+              fill="#fff"
+              fontSize={12}
+              padding={12}
+              width={200}
+              lineHeight={1.35}
+            />
+          </Label>
+          <DeleteControl x={122} y={-16} onDelete={onDelete} />
+        </>
+      )}
+    </Group>
+  );
+}
+
+function SignatureAnnotation({ annotation, pageWidth, pageHeight, isSelected, onSelect, onDelete, onMove }: any) {
+  const [image, setImage] = useState<HTMLImageElement | null>(null);
+  const { data } = annotation;
+  const x = (data.x / 100) * pageWidth;
+  const y = (data.y / 100) * pageHeight;
+
+  useEffect(() => {
+    if (!data.imageDataUrl) return;
+    const img = new window.Image();
+    img.crossOrigin = 'anonymous';
+    img.src = data.imageDataUrl;
+    img.onload = () => setImage(img);
+  }, [data.imageDataUrl]);
+
+  return (
+    <Group
+      x={x}
+      y={y}
+      onClick={(event) => {
+        event.cancelBubble = true;
+        onSelect();
+      }}
+      onTap={(event) => {
+        event.cancelBubble = true;
+        onSelect();
+      }}
+      {...activeDragProps('SIGNATURE', data, pageWidth, pageHeight, onMove)}
+    >
+      {isSelected && (
+        <Rect
+          width={data.width || 200}
+          height={data.height || 80}
+          stroke="#6366f1"
+          strokeWidth={2}
+          cornerRadius={4}
+        />
+      )}
+      {image && (
+        <KonvaImage
+          image={image}
+          width={data.width || 200}
+          height={data.height || 80}
+        />
+      )}
+      {isSelected && <DeleteControl x={(data.width || 200) + 10} y={-10} onDelete={onDelete} />}
+    </Group>
   );
 }
 

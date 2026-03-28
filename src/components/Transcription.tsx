@@ -7,6 +7,7 @@ import { GoogleGenAI } from '@google/genai';
 import { uriToBase64 } from '../lib/blob-utils';
 import { PDFDocument as PDFLib, StandardFonts, rgb } from 'pdf-lib';
 import { savePdf } from '../lib/savePdf';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
 interface TranscriptionProps {
   setView: (view: any) => void;
@@ -95,7 +96,7 @@ export default function Transcription({ setView }: TranscriptionProps) {
   };
 
   return (
-    <View style={styles.container}>
+    <SafeAreaView style={styles.container} edges={['top']}>
       <View style={styles.header}>
         <TouchableOpacity onPress={() => setView('dashboard')} style={styles.backButton}>
           <ChevronLeft size={24} color="#fff" />
@@ -178,7 +179,7 @@ export default function Transcription({ setView }: TranscriptionProps) {
           </View>
         )}
       </ScrollView>
-    </View>
+    </SafeAreaView>
   );
 }
 
@@ -186,7 +187,6 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#0a0a0a',
-    paddingTop: 60,
   },
   header: {
     flexDirection: 'row',
