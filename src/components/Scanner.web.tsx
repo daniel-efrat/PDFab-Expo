@@ -6,6 +6,9 @@ import { db, storage } from '../firebase';
 import { collection, addDoc } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { PDFDocument as PDFLib } from 'pdf-lib';
+import { theme } from '../theme';
+import NeumorphicButton from './NeumorphicButton';
+import NeumorphicView from './NeumorphicView';
 
 interface ScannerProps {
   setView: (view: any) => void;
@@ -128,9 +131,9 @@ export default function Scanner({ setView }: ScannerProps) {
       />
 
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => setView('dashboard')} style={styles.backButton}>
-          <ChevronLeft size={24} color="#fff" />
-        </TouchableOpacity>
+        <NeumorphicButton radius={12} layerStyle={styles.backButton} onPress={() => setView('dashboard')}>
+          <ChevronLeft size={24} color={theme.colors.text} />
+        </NeumorphicButton>
         <View>
           <Text style={styles.title}>Scan to PDF</Text>
           <Text style={styles.subtitle}>CAPTURE OR UPLOAD AN IMAGE</Text>
@@ -140,33 +143,37 @@ export default function Scanner({ setView }: ScannerProps) {
       <View style={styles.content}>
         {!image ? (
           <View style={styles.menu}>
-            <TouchableOpacity style={styles.menuCard} onPress={() => cameraInputRef.current?.click()}>
+            <NeumorphicButton radius={24} layerStyle={styles.menuCard} onPress={() => cameraInputRef.current?.click()}>
               <View style={styles.menuIcon}>
-                <CameraIcon size={32} color="#fff" />
+                <CameraIcon size={32} color={theme.colors.text} />
               </View>
               <Text style={styles.menuTitle}>Use Camera</Text>
               <Text style={styles.menuSubtitle}>Open your device camera in the browser</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.menuCard} onPress={() => libraryInputRef.current?.click()}>
+            </NeumorphicButton>
+            <NeumorphicButton radius={24} layerStyle={styles.menuCard} onPress={() => libraryInputRef.current?.click()}>
               <View style={styles.menuIcon}>
-                <ImageIcon size={32} color="#fff" />
+                <ImageIcon size={32} color={theme.colors.text} />
               </View>
               <Text style={styles.menuTitle}>Upload Photo</Text>
               <Text style={styles.menuSubtitle}>Choose an image from your device</Text>
-            </TouchableOpacity>
+            </NeumorphicButton>
           </View>
         ) : (
           <View style={styles.previewWrapper}>
             <Image source={{ uri: image }} style={styles.previewImage} resizeMode="contain" />
             <View style={styles.previewActions}>
-              <TouchableOpacity style={styles.discardButton} onPress={clearImage}>
+              <NeumorphicButton layerStyle={styles.discardButton} onPress={clearImage}>
                 <RefreshCw size={18} color="rgba(255,255,255,0.6)" />
                 <Text style={styles.discardButtonText}>START OVER</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.saveButton} onPress={handleScan} disabled={scanning}>
-                {scanning ? <ActivityIndicator color="#000" /> : <Check size={20} color="#000" />}
+              </NeumorphicButton>
+              <NeumorphicButton 
+                layerStyle={[styles.saveButton, { backgroundColor: theme.colors.accentStrong }]} 
+                onPress={handleScan} 
+                disabled={scanning}
+              >
+                {scanning ? <ActivityIndicator color={theme.colors.white} /> : <Check size={20} color={theme.colors.white} />}
                 <Text style={styles.saveButtonText}>{scanning ? 'SAVING...' : 'CREATE PDF'}</Text>
-              </TouchableOpacity>
+              </NeumorphicButton>
             </View>
           </View>
         )}
@@ -178,7 +185,7 @@ export default function Scanner({ setView }: ScannerProps) {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#0a0a0a',
+    backgroundColor: theme.colors.bg,
     paddingTop: 60,
   },
   hiddenInput: {
@@ -194,10 +201,8 @@ const styles = StyleSheet.create({
   backButton: {
     width: 40,
     height: 40,
-    backgroundColor: 'rgba(255,255,255,0.05)',
-    borderRadius: 12,
-    alignItems: 'center',
-    justifyContent: 'center',
+    paddingHorizontal: 0,
+    paddingVertical: 0,
   },
   title: {
     color: '#fff',
@@ -205,7 +210,7 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
   },
   subtitle: {
-    color: 'rgba(255,255,255,0.4)',
+    color: theme.colors.textMuted,
     fontSize: 10,
     fontWeight: 'bold',
     letterSpacing: 1,
@@ -220,21 +225,19 @@ const styles = StyleSheet.create({
     marginTop: 20,
   },
   menuCard: {
-    backgroundColor: 'rgba(255,255,255,0.05)',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.1)',
-    borderRadius: 24,
     padding: 30,
     alignItems: 'center',
   },
   menuIcon: {
     width: 64,
     height: 64,
-    backgroundColor: 'rgba(255,255,255,0.1)',
+    backgroundColor: theme.colors.surfaceMuted,
     borderRadius: 20,
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: 20,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
   },
   menuTitle: {
     color: '#fff',
@@ -243,7 +246,7 @@ const styles = StyleSheet.create({
     marginBottom: 5,
   },
   menuSubtitle: {
-    color: 'rgba(255,255,255,0.4)',
+    color: theme.colors.textMuted,
     fontSize: 12,
     textAlign: 'center',
   },
@@ -263,10 +266,9 @@ const styles = StyleSheet.create({
   },
   discardButton: {
     flex: 1,
-    height: 56,
+    flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    flexDirection: 'row',
     gap: 8,
   },
   discardButtonText: {
@@ -277,16 +279,13 @@ const styles = StyleSheet.create({
   },
   saveButton: {
     flex: 2,
-    height: 56,
-    backgroundColor: '#fff',
-    borderRadius: 28,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 10,
   },
   saveButtonText: {
-    color: '#000',
+    color: theme.colors.white,
     fontSize: 14,
     fontWeight: 'bold',
     letterSpacing: 1,

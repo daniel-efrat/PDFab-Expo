@@ -6,6 +6,9 @@ import { signInWithEmailAndPassword, createUserWithEmailAndPassword, signInWithP
 import { auth, googleProvider } from '../firebase';
 import { Mail, Lock, LogIn, UserPlus } from 'lucide-react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { theme } from '../theme';
+import NeumorphicView from './NeumorphicView';
+import NeumorphicButton from './NeumorphicButton';
 
 export default function Auth() {
   const [isLogin, setIsLogin] = useState(true);
@@ -54,41 +57,43 @@ export default function Auth() {
       >
         <ScrollView contentContainerStyle={styles.scrollContent}>
         <View style={styles.header}>
-          <Image source={Platform.OS === 'web' ? { uri: '/logo.svg' } : logoSrc} style={styles.logo} resizeMode="contain" />
+          <NeumorphicView radius={24} style={styles.logoWrapper}>
+            <Image source={Platform.OS === 'web' ? { uri: '/logo.svg' } : logoSrc} style={styles.logo} resizeMode="contain" />
+          </NeumorphicView>
           <Text style={styles.title}>PDFab</Text>
           <Text style={styles.subtitle}>THE ULTIMATE PDF WORKSPACE</Text>
         </View>
 
-        <View style={styles.form}>
+        <NeumorphicView radius={28} style={styles.form}>
           <View style={styles.inputGroup}>
             <Text style={styles.label}>Email Address</Text>
-            <View style={styles.inputWrapper}>
-              <Mail size={20} color="rgba(255,255,255,0.2)" style={styles.inputIcon} />
+            <NeumorphicView pressed radius={16} layerStyle={styles.inputWrapper}>
+              <Mail size={20} color={theme.colors.textSoft} style={styles.inputIcon} />
               <TextInput
                 style={styles.input}
                 placeholder="name@example.com"
-                placeholderTextColor="rgba(255,255,255,0.2)"
+                placeholderTextColor={theme.colors.textSoft}
                 value={email}
                 onChangeText={setEmail}
                 keyboardType="email-address"
                 autoCapitalize="none"
               />
-            </View>
+            </NeumorphicView>
           </View>
 
           <View style={styles.inputGroup}>
             <Text style={styles.label}>Password</Text>
-            <View style={styles.inputWrapper}>
-              <Lock size={20} color="rgba(255,255,255,0.2)" style={styles.inputIcon} />
+            <NeumorphicView pressed radius={16} layerStyle={styles.inputWrapper}>
+              <Lock size={20} color={theme.colors.textSoft} style={styles.inputIcon} />
               <TextInput
                 style={styles.input}
                 placeholder="••••••••"
-                placeholderTextColor="rgba(255,255,255,0.2)"
+                placeholderTextColor={theme.colors.textSoft}
                 value={password}
                 onChangeText={setPassword}
                 secureTextEntry
               />
-            </View>
+            </NeumorphicView>
           </View>
 
           {error ? (
@@ -97,20 +102,21 @@ export default function Auth() {
             </View>
           ) : null}
 
-          <TouchableOpacity 
-            style={styles.button} 
+          <NeumorphicButton
+            radius={16}
+            layerStyle={[styles.button, { backgroundColor: theme.colors.accentStrong }]}
             onPress={handleAuth}
             disabled={loading}
           >
             {loading ? (
-              <ActivityIndicator color="#fff" />
+              <ActivityIndicator color={theme.colors.white} />
             ) : (
               <>
-                {isLogin ? <LogIn size={20} color="#fff" /> : <UserPlus size={20} color="#fff" />}
+                {isLogin ? <LogIn size={20} color={theme.colors.white} /> : <UserPlus size={20} color={theme.colors.white} />}
                 <Text style={styles.buttonText}>{isLogin ? 'SIGN IN' : 'CREATE ACCOUNT'}</Text>
               </>
             )}
-          </TouchableOpacity>
+          </NeumorphicButton>
 
           <View style={styles.divider}>
             <View style={styles.dividerLine} />
@@ -118,9 +124,9 @@ export default function Auth() {
             <View style={styles.dividerLine} />
           </View>
 
-          <TouchableOpacity style={styles.googleButton} onPress={handleGoogle}>
+          <NeumorphicButton radius={16} layerStyle={styles.googleButton} onPress={handleGoogle}>
             <Text style={styles.googleButtonText}>GOOGLE</Text>
-          </TouchableOpacity>
+          </NeumorphicButton>
 
           <TouchableOpacity 
             style={styles.switchButton} 
@@ -131,7 +137,7 @@ export default function Auth() {
               <Text style={styles.switchTextBold}>{isLogin ? 'Sign up' : 'Sign in'}</Text>
             </Text>
           </TouchableOpacity>
-        </View>
+        </NeumorphicView>
         </ScrollView>
       </KeyboardAvoidingView>
     </SafeAreaView>
@@ -141,7 +147,7 @@ export default function Auth() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#0a0a0a',
+    backgroundColor: theme.colors.bg,
   },
   scrollContent: {
     flexGrow: 1,
@@ -150,36 +156,43 @@ const styles = StyleSheet.create({
   },
   header: {
     alignItems: 'center',
-    marginBottom: 50,
+    marginBottom: 42,
+  },
+  logoWrapper: {
+    padding: 12,
+    marginBottom: 20,
   },
   logo: {
-    width: 64,
-    height: 64,
-    borderRadius: 16,
-    marginBottom: 20,
+    width: 48,
+    height: 48,
   },
   title: {
     fontSize: 32,
-    fontWeight: 'bold',
-    color: '#fff',
+    fontWeight: '800',
+    color: theme.colors.text,
     letterSpacing: -1,
+    fontFamily: 'PDFabMontserrat',
   },
   subtitle: {
-    fontSize: 10,
-    color: 'rgba(255,255,255,0.4)',
-    fontWeight: 'bold',
-    letterSpacing: 2,
-    marginTop: 5,
+    fontSize: 11,
+    color: theme.colors.accentStrong,
+    fontWeight: '800',
+    letterSpacing: 1.8,
+    marginTop: 7,
   },
   form: {
     gap: 20,
+    padding: 24,
+    width: '100%',
+    maxWidth: 400,
+    alignSelf: 'center',
   },
   inputGroup: {
     gap: 8,
   },
   label: {
     fontSize: 10,
-    color: 'rgba(255,255,255,0.4)',
+    color: theme.colors.textMuted,
     fontWeight: 'bold',
     letterSpacing: 1,
     textTransform: 'uppercase',
@@ -188,10 +201,6 @@ const styles = StyleSheet.create({
   inputWrapper: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: 'rgba(255,255,255,0.05)',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.1)',
-    borderRadius: 12,
     paddingHorizontal: 15,
   },
   inputIcon: {
@@ -199,36 +208,33 @@ const styles = StyleSheet.create({
   },
   input: {
     flex: 1,
-    height: 50,
-    color: '#fff',
+    height: 56,
+    color: theme.colors.text,
     fontSize: 16,
   },
   errorContainer: {
-    backgroundColor: 'rgba(239, 68, 68, 0.1)',
+    backgroundColor: theme.colors.dangerSoft,
     borderWidth: 1,
-    borderColor: 'rgba(239, 68, 68, 0.2)',
+    borderColor: theme.colors.danger,
     padding: 12,
-    borderRadius: 10,
+    borderRadius: 14,
   },
   errorText: {
-    color: '#f87171',
+    color: '#ffd1cb',
     fontSize: 12,
     textAlign: 'center',
   },
   button: {
-    backgroundColor: '#ec6400',
-    height: 56,
-    borderRadius: 12,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 10,
-    marginTop: 10,
+    paddingVertical: 18,
   },
   buttonText: {
-    color: '#fff',
+    color: theme.colors.white,
     fontSize: 16,
-    fontWeight: 'bold',
+    fontWeight: '800',
   },
   divider: {
     flexDirection: 'row',
@@ -238,26 +244,22 @@ const styles = StyleSheet.create({
   dividerLine: {
     flex: 1,
     height: 1,
-    backgroundColor: 'rgba(255,255,255,0.1)',
+    backgroundColor: 'rgba(255,255,255,0.05)',
   },
   dividerText: {
-    color: 'rgba(255,255,255,0.2)',
+    color: theme.colors.textSoft,
     fontSize: 10,
     fontWeight: 'bold',
     marginHorizontal: 15,
     letterSpacing: 1,
   },
   googleButton: {
-    backgroundColor: 'rgba(255,255,255,0.05)',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.1)',
-    height: 56,
-    borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
+    paddingVertical: 18,
   },
   googleButtonText: {
-    color: '#fff',
+    color: theme.colors.text,
     fontSize: 14,
     fontWeight: 'bold',
     letterSpacing: 1,
@@ -267,11 +269,11 @@ const styles = StyleSheet.create({
     marginTop: 10,
   },
   switchText: {
-    color: 'rgba(255,255,255,0.4)',
+    color: theme.colors.textMuted,
     fontSize: 14,
   },
   switchTextBold: {
-    color: '#fff',
+    color: theme.colors.accentStrong,
     fontWeight: 'bold',
   },
 });

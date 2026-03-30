@@ -2,11 +2,14 @@
   "expo": {
     "name": "PDFab",
     "slug": "pdfab",
+    "scheme": "pdfab",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "dark",
     "splash": {
+      "image": "./assets/icon.png",
+      "resizeMode": "contain",
       "backgroundColor": "#20282f"
     },
     "assetBundlePatterns": [
@@ -25,6 +28,11 @@
     },
     "web": {
       "favicon": "./public/logo.svg"
+    },
+    "extra": {
+      "eas": {
+        "projectId": "82076f36-06f5-4011-a862-692c8b124b0b"
+      }
     }
   }
 }

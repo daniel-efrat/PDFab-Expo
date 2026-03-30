@@ -4,6 +4,7 @@ import {
   Dimensions,
   Keyboard,
   Modal,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -15,17 +16,21 @@ import {
   type ScrollView as RNScrollView,
 } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
-import { Check, ChevronLeft, Download, FileText, Highlighter, MessageSquare, MousePointer2, PenTool, Trash2, Type, Undo2, Redo2, ZoomIn, ZoomOut } from 'lucide-react-native';
+import { Check, ChevronLeft, Circle as CircleIcon, Download, FileText, Highlighter, LineSquiggle, MessageSquare, Minus, MousePointer2, PenTool, Square, SquarePen, Trash2, Type, Undo2, Redo2, X, ZoomIn, ZoomOut } from 'lucide-react-native';
 import { PDFDocument as PDFLib } from 'pdf-lib';
-import { doc, updateDoc } from 'firebase/firestore';
+import { collection, doc, onSnapshot, updateDoc } from 'firebase/firestore';
 import Pdf from 'react-native-pdf';
-import { Canvas, Circle, Path as SkiaPath, Rect as SkiaRect, Skia, Text as SkiaText, matchFont } from '@shopify/react-native-skia';
+import { Canvas, Circle, Group as SkiaGroup, Path as SkiaPath, Rect as SkiaRect, Skia } from '@shopify/react-native-skia';
 import Animated, { runOnJS, useAnimatedStyle, useSharedValue } from 'react-native-reanimated';
+import Svg, { Ellipse as SvgEllipse, G, Image as SvgImage, Line as SvgLine, Path as SvgPath, Rect as SvgRect } from 'react-native-svg';
 import { db } from '../firebase';
 import { savePdf } from '../lib/savePdf';
 import { useStore } from '../store/useStore';
 import type { Annotation, PDFDocument } from '../types';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { theme } from '../theme';
+import NeumorphicButton from './NeumorphicButton';
+import NeumorphicView from './NeumorphicView';
 
 const { width, height } = Dimensions.get('window');
 const INACTIVE_PEN_COLOR = '';
@@ -43,44 +48,279 @@ type DraftInput = {
   value: string;
 };
 
+type SavedSignatureSlot = {
+  id: 'signature' | 'initials';
+  label: string;
+  kind: 'draw' | 'image';
+  paths: string[];
+  imageUri: string | null;
+  aspectRatio: number;
+  raw: any;
+};
+
+type FillSignAction = 'text' | 'cross' | 'check' | 'ellipse' | 'rect' | 'line' | 'sign';
+
 const nextId = () => `ann_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-const TEXT_COLORS = ['#ffffff', '#111111', '#4b5563', '#fca5a5', '#fb7185', '#ef4444', '#dc2626', '#ec6400', '#f59e0b', '#2563eb', '#7c3aed', '#c084fc'];
-const FONT_OPTIONS = ['Inter', 'Archivo Black', 'Georgia', 'Helvetica', 'Courier New', 'Times New Roman', 'Verdana'];
+const TEXT_COLORS = ['#ffffff', '#111111', '#4b5563', '#fca5a5', '#fb7185', '#ef4444', '#dc2626', theme.colors.accentStrong, '#f59e0b', '#2563eb', '#7c3aed', '#c084fc'];
+const FONT_OPTIONS = ['Assistant', 'Amatic SC', 'Bellefair', 'Montserrat', 'Open Sans', 'Georgia', 'Courier New', 'Times New Roman', 'Verdana'];
 const EMPTY_POINTS: Array<{ x: number; y: number }> = [];
 const MIN_STROKE_POINT_DISTANCE = 0.35;
-const TEXT_ASCENT_RATIO = 0.78;
-const TEXT_DESCENT_RATIO = 0.06;
 const PAGE_RENDER_WINDOW = 1;
 const PAGE_STACK_GAP = 18;
-const SKIA_FONT_FAMILY_MAP: Record<string, string> = {
-  Inter: 'Helvetica',
-  'Archivo Black': 'Helvetica',
-  Helvetica: 'Helvetica',
-  Georgia: 'Georgia',
-  'Courier New': 'Courier',
-  'Times New Roman': 'Times New Roman',
-  Verdana: 'Verdana',
-  System: 'Helvetica',
+const BUNDLED_FONT_FAMILY_MAP: Record<string, string> = {
+  Arial: 'PDFabArial',
+  Assistant: 'PDFabAssistant',
+  'Amatic SC': 'PDFabAmaticSC',
+  Bellefair: 'PDFabBellefair',
+  Montserrat: 'PDFabMontserrat',
+  'Open Sans': 'PDFabOpenSans',
+  Georgia: 'PDFabGeorgia',
+  'Courier New': 'PDFabCourierNew',
+  'Times New Roman': 'PDFabTimesNewRoman',
+  Verdana: 'PDFabVerdana',
+  System: Platform.select({
+    ios: 'System',
+    android: 'sans-serif',
+    default: 'sans-serif',
+  }) || 'sans-serif',
 };
-const TEXT_WIDTH_RATIO_MAP: Record<string, number> = {
-  Inter: 0.58,
-  'Archivo Black': 0.62,
-  Helvetica: 0.58,
-  Georgia: 0.64,
-  'Courier New': 0.62,
-  'Times New Roman': 0.62,
-  Verdana: 0.6,
-  System: 0.58,
+const HEBREW_CAPABLE_FONT_FAMILIES = new Set([
+  'Arial',
+  'Assistant',
+  'Bellefair',
+  'Courier New',
+  'Open Sans',
+  'Times New Roman',
+  'System',
+]);
+type TextMetricsPreset = {
+  widthRatio: number;
+  widthBuffer: number;
+  lineHeightRatio: number;
+  ascentRatio: number;
+  descentRatio: number;
+  horizontalPaddingRatio: number;
+  verticalPaddingRatio: number;
+  minHeightRatio: number;
 };
-const TEXT_WIDTH_BUFFER_MAP: Record<string, number> = {
-  Inter: 2,
-  'Archivo Black': 4,
-  Helvetica: 2,
-  Georgia: 6,
-  'Courier New': 6,
-  'Times New Roman': 6,
-  Verdana: 4,
-  System: 2,
+
+const DEFAULT_TEXT_METRICS_PRESET: TextMetricsPreset = {
+  widthRatio: 0.58,
+  widthBuffer: 2,
+  lineHeightRatio: 0.88,
+  ascentRatio: 0.78,
+  descentRatio: 0.06,
+  horizontalPaddingRatio: 0,
+  verticalPaddingRatio: 0,
+  minHeightRatio: 0.84,
+};
+
+const RTL_TEXT_METRICS_PRESETS: Record<string, TextMetricsPreset> = {
+  Arial: {
+    widthRatio: 0.66,
+    widthBuffer: 5,
+    lineHeightRatio: 1.02,
+    ascentRatio: 0.84,
+    descentRatio: 0.18,
+    horizontalPaddingRatio: 0.08,
+    verticalPaddingRatio: 0.08,
+    minHeightRatio: 1,
+  },
+  Assistant: {
+    widthRatio: 0.64,
+    widthBuffer: 4,
+    lineHeightRatio: 0.98,
+    ascentRatio: 0.82,
+    descentRatio: 0.16,
+    horizontalPaddingRatio: 0.02,
+    verticalPaddingRatio: 0.04,
+    minHeightRatio: 0.96,
+  },
+  'Amatic SC': {
+    widthRatio: 0.42,
+    widthBuffer: 4,
+    lineHeightRatio: 0.92,
+    ascentRatio: 0.78,
+    descentRatio: 0.1,
+    horizontalPaddingRatio: 0.02,
+    verticalPaddingRatio: 0.02,
+    minHeightRatio: 0.88,
+  },
+  Bellefair: {
+    widthRatio: 0.64,
+    widthBuffer: 4,
+    lineHeightRatio: 1.04,
+    ascentRatio: 0.83,
+    descentRatio: 0.18,
+    horizontalPaddingRatio: 0.02,
+    verticalPaddingRatio: 0.08,
+    minHeightRatio: 1,
+  },
+  Montserrat: {
+    widthRatio: 0.62,
+    widthBuffer: 4,
+    lineHeightRatio: 1,
+    ascentRatio: 0.82,
+    descentRatio: 0.16,
+    horizontalPaddingRatio: 0.04,
+    verticalPaddingRatio: 0.05,
+    minHeightRatio: 0.96,
+  },
+  'Open Sans': {
+    widthRatio: 0.64,
+    widthBuffer: 3,
+    lineHeightRatio: 1.04,
+    ascentRatio: 0.85,
+    descentRatio: 0.2,
+    horizontalPaddingRatio: 0.02,
+    verticalPaddingRatio: 0.08,
+    minHeightRatio: 1.02,
+  },
+  Georgia: {
+    widthRatio: 0.64,
+    widthBuffer: 6,
+    lineHeightRatio: 0.98,
+    ascentRatio: 0.82,
+    descentRatio: 0.14,
+    horizontalPaddingRatio: 0.03,
+    verticalPaddingRatio: 0.04,
+    minHeightRatio: 0.94,
+  },
+  'Courier New': {
+    widthRatio: 0.67,
+    widthBuffer: 6,
+    lineHeightRatio: 1,
+    ascentRatio: 0.81,
+    descentRatio: 0.16,
+    horizontalPaddingRatio: 0.04,
+    verticalPaddingRatio: 0.04,
+    minHeightRatio: 0.96,
+  },
+  'Times New Roman': {
+    widthRatio: 0.66,
+    widthBuffer: 5,
+    lineHeightRatio: 1.06,
+    ascentRatio: 0.85,
+    descentRatio: 0.2,
+    horizontalPaddingRatio: 0.02,
+    verticalPaddingRatio: 0.09,
+    minHeightRatio: 1.02,
+  },
+  Verdana: {
+    widthRatio: 0.64,
+    widthBuffer: 5,
+    lineHeightRatio: 1.02,
+    ascentRatio: 0.83,
+    descentRatio: 0.16,
+    horizontalPaddingRatio: 0.05,
+    verticalPaddingRatio: 0.05,
+    minHeightRatio: 0.98,
+  },
+  System: {
+    widthRatio: 0.64,
+    widthBuffer: 4,
+    lineHeightRatio: 1,
+    ascentRatio: 0.82,
+    descentRatio: 0.16,
+    horizontalPaddingRatio: 0.04,
+    verticalPaddingRatio: 0.05,
+    minHeightRatio: 0.96,
+  },
+};
+
+const LTR_TEXT_METRICS_PRESETS: Record<string, TextMetricsPreset> = {
+  Arial: DEFAULT_TEXT_METRICS_PRESET,
+  Assistant: {
+    widthRatio: 0.57,
+    widthBuffer: 2,
+    lineHeightRatio: 0.9,
+    ascentRatio: 0.77,
+    descentRatio: 0.1,
+    horizontalPaddingRatio: 0,
+    verticalPaddingRatio: 0.02,
+    minHeightRatio: 0.9,
+  },
+  'Amatic SC': {
+    widthRatio: 0.42,
+    widthBuffer: 4,
+    lineHeightRatio: 0.9,
+    ascentRatio: 0.76,
+    descentRatio: 0.08,
+    horizontalPaddingRatio: 0.01,
+    verticalPaddingRatio: 0.01,
+    minHeightRatio: 0.86,
+  },
+  Bellefair: {
+    widthRatio: 0.57,
+    widthBuffer: 3,
+    lineHeightRatio: 0.88,
+    ascentRatio: 0.78,
+    descentRatio: 0.08,
+    horizontalPaddingRatio: 0,
+    verticalPaddingRatio: 0.02,
+    minHeightRatio: 0.86,
+  },
+  Montserrat: {
+    widthRatio: 0.57,
+    widthBuffer: 2,
+    lineHeightRatio: 0.9,
+    ascentRatio: 0.77,
+    descentRatio: 0.1,
+    horizontalPaddingRatio: 0,
+    verticalPaddingRatio: 0.02,
+    minHeightRatio: 0.89,
+  },
+  'Open Sans': {
+    widthRatio: 0.57,
+    widthBuffer: 2,
+    lineHeightRatio: 0.92,
+    ascentRatio: 0.78,
+    descentRatio: 0.11,
+    horizontalPaddingRatio: 0.01,
+    verticalPaddingRatio: 0.03,
+    minHeightRatio: 0.9,
+  },
+  Georgia: {
+    widthRatio: 0.59,
+    widthBuffer: 4,
+    lineHeightRatio: 0.94,
+    ascentRatio: 0.79,
+    descentRatio: 0.12,
+    horizontalPaddingRatio: 0,
+    verticalPaddingRatio: 0.03,
+    minHeightRatio: 0.92,
+  },
+  'Courier New': {
+    widthRatio: 0.61,
+    widthBuffer: 6,
+    lineHeightRatio: 0.88,
+    ascentRatio: 0.77,
+    descentRatio: 0.07,
+    horizontalPaddingRatio: 0.01,
+    verticalPaddingRatio: 0.01,
+    minHeightRatio: 0.85,
+  },
+  'Times New Roman': {
+    widthRatio: 0.57,
+    widthBuffer: 3,
+    lineHeightRatio: 0.94,
+    ascentRatio: 0.79,
+    descentRatio: 0.12,
+    horizontalPaddingRatio: 0,
+    verticalPaddingRatio: 0.03,
+    minHeightRatio: 0.92,
+  },
+  Verdana: {
+    widthRatio: 0.59,
+    widthBuffer: 4,
+    lineHeightRatio: 0.88,
+    ascentRatio: 0.78,
+    descentRatio: 0.07,
+    horizontalPaddingRatio: 0.01,
+    verticalPaddingRatio: 0.01,
+    minHeightRatio: 0.85,
+  },
+  System: DEFAULT_TEXT_METRICS_PRESET,
 };
 const HIGHLIGHT_OPACITY = 0.35;
 const HIGHLIGHT_DEFAULT_COLOR = '#facc15';
@@ -91,11 +331,13 @@ const HIGHLIGHT_COLORS = [
   HIGHLIGHT_DEFAULT_COLOR,
   ...TEXT_COLORS.slice(2),
 ];
-const MIN_HIGHLIGHT_WIDTH = 6;
+const RELATIVE_STROKE_WIDTH_MODE = 'relative';
+const MIN_HIGHLIGHT_WIDTH = 1;
 const MAX_HIGHLIGHT_WIDTH = 24;
 const MIN_ZOOM = 0.7;
 const MAX_ZOOM = 2.5;
 const AUTOSAVE_DEBOUNCE_MS = 600;
+const RTL_TEXT_REGEX = /[\u0590-\u05FF\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF]/;
 
 function stripUndefinedDeep<T>(value: T): T {
   if (Array.isArray(value)) {
@@ -110,6 +352,111 @@ function stripUndefinedDeep<T>(value: T): T {
   }
 
   return value;
+}
+
+function isRTLText(value: string) {
+  return RTL_TEXT_REGEX.test(value);
+}
+
+function getTextDirectionStyle(value: string) {
+  const isRTL = isRTLText(value);
+  return {
+    writingDirection: isRTL ? ('rtl' as const) : ('ltr' as const),
+    textAlign: isRTL ? ('right' as const) : ('left' as const),
+  };
+}
+
+function toRelativeStrokeWidth(screenStrokeWidth: number, canvasWidth: number) {
+  return (screenStrokeWidth / Math.max(canvasWidth, 1)) * 100;
+}
+
+function getCanvasStrokeWidth(
+  data: Annotation['data'] | undefined,
+  canvasWidth: number,
+  fallback: number
+) {
+  const storedStrokeWidth = data?.strokeWidth;
+  if (typeof storedStrokeWidth !== 'number' || Number.isNaN(storedStrokeWidth)) {
+    return fallback;
+  }
+
+  if (data?.strokeWidthMode === RELATIVE_STROKE_WIDTH_MODE) {
+    return (storedStrokeWidth / 100) * canvasWidth;
+  }
+
+  return storedStrokeWidth;
+}
+
+function parseSignatureSlot(slotId: 'signature' | 'initials', raw: any): SavedSignatureSlot | null {
+  if (!raw?.data) return null;
+
+  try {
+    const parsed = JSON.parse(raw.data);
+    const paths = Array.isArray(parsed?.paths) ? parsed.paths.filter((path: unknown) => typeof path === 'string') : [];
+    const imageUri = typeof parsed?.imageUri === 'string' ? parsed.imageUri : null;
+    const kind = parsed?.kind === 'image' && imageUri ? 'image' : 'draw';
+    if (kind === 'draw' && paths.length === 0) return null;
+    return {
+      id: slotId,
+      label: slotId === 'signature' ? 'Signature' : 'Initials',
+      kind,
+      paths,
+      imageUri,
+      aspectRatio: typeof parsed?.aspectRatio === 'number' && parsed.aspectRatio > 0 ? parsed.aspectRatio : 3.4,
+      raw,
+    };
+  } catch (error) {
+    console.error('Parse signature slot error:', error);
+    return null;
+  }
+}
+
+function getSignaturePathsBounds(paths: string[]) {
+  const values = paths.flatMap((path) => {
+    const matches = path.match(/-?\d*\.?\d+/g);
+    if (!matches) return [];
+    return matches.map(Number).filter((value) => Number.isFinite(value));
+  });
+
+  if (values.length < 2) {
+    return { minX: 0, minY: 0, maxX: 1, maxY: 1, width: 1, height: 1 };
+  }
+
+  let minX = values[0];
+  let maxX = values[0];
+  let minY = values[1];
+  let maxY = values[1];
+
+  for (let index = 0; index < values.length - 1; index += 2) {
+    const x = values[index];
+    const y = values[index + 1];
+    minX = Math.min(minX, x);
+    maxX = Math.max(maxX, x);
+    minY = Math.min(minY, y);
+    maxY = Math.max(maxY, y);
+  }
+
+  return {
+    minX,
+    minY,
+    maxX,
+    maxY,
+    width: Math.max(maxX - minX, 1),
+    height: Math.max(maxY - minY, 1),
+  };
+}
+
+function getFillSignActionForAnnotation(annotation: Annotation | null): FillSignAction | null {
+  if (!annotation || annotation.type !== 'SIGNATURE') return null;
+  const kind = annotation.data?.kind || annotation.data?.slotType;
+  if (kind === 'signature' || kind === 'initials') return 'sign';
+  if (kind === 'cross') return 'cross';
+  if (kind === 'check') return 'check';
+  if (kind === 'ellipse') return 'ellipse';
+  if (kind === 'rect') return 'rect';
+  if (kind === 'line') return 'line';
+  if (kind === 'text') return 'text';
+  return null;
 }
 
 export default function EditorNative({ setView }: EditorProps) {
@@ -150,6 +497,11 @@ export default function EditorNative({ setView }: EditorProps) {
   const [inputValue, setInputValue] = useState('');
   const [commentViewer, setCommentViewer] = useState<Annotation | null>(null);
   const [editingTextAnnotationId, setEditingTextAnnotationId] = useState<string | null>(null);
+  const [isOverlayInteracting, setIsOverlayInteracting] = useState(false);
+  const [isCanvasInteracting, setIsCanvasInteracting] = useState(false);
+  const [signatureSlots, setSignatureSlots] = useState<Record<string, any>>({});
+  const [activeSignatureSlotId, setActiveSignatureSlotId] = useState<'signature' | 'initials' | null>(null);
+  const [activeFillSignAction, setActiveFillSignAction] = useState<FillSignAction>('text');
 
   const drawPointsRef = useRef<Array<{ x: number; y: number }>>([]);
   const pendingDrawPointsRef = useRef<Array<{ x: number; y: number }> | null>(null);
@@ -161,8 +513,11 @@ export default function EditorNative({ setView }: EditorProps) {
   const verticalScrollOffsetRef = useRef(0);
   const horizontalScrollOffsetRef = useRef(0);
   const pinchStartZoomRef = useRef(zoom);
+  const pinchFocusPointRef = useRef<{ x: number; y: number; pageIndex: number } | null>(null);
+  const zoomRecenterFrameRef = useRef<number | null>(null);
   const autosaveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastSavedSnapshotRef = useRef('');
+  const ignoreNextSelectPagePressRef = useRef(false);
 
   const scheduleDrawPreview = (points: Array<{ x: number; y: number }>) => {
     pendingDrawPointsRef.current = points;
@@ -214,6 +569,9 @@ export default function EditorNative({ setView }: EditorProps) {
     if (drawPreviewFrameRef.current !== null) {
       cancelAnimationFrame(drawPreviewFrameRef.current);
     }
+    if (zoomRecenterFrameRef.current !== null) {
+      cancelAnimationFrame(zoomRecenterFrameRef.current);
+    }
     if (autosaveTimeoutRef.current !== null) {
       clearTimeout(autosaveTimeoutRef.current);
     }
@@ -223,6 +581,13 @@ export default function EditorNative({ setView }: EditorProps) {
     if (activeTool === 'HIGHLIGHT' && previousToolRef.current !== 'HIGHLIGHT') {
       setPenColor(HIGHLIGHT_DEFAULT_COLOR);
       setPenWidth(HIGHLIGHT_DEFAULT_WIDTH);
+    }
+    if (activeTool === 'SIGNATURE' && previousToolRef.current !== 'SIGNATURE') {
+      setActiveFillSignAction('text');
+      setActiveSignatureSlotId(null);
+    }
+    if (activeTool !== 'SIGNATURE') {
+      setActiveSignatureSlotId(null);
     }
     previousToolRef.current = activeTool;
   }, [activeTool, setPenColor, setPenWidth]);
@@ -260,24 +625,44 @@ export default function EditorNative({ setView }: EditorProps) {
   const selectedAnnotation = pageAnnotations.find((annotation) => annotation.id === selectedAnnotationId) || null;
   const selectedTextAnnotation = selectedAnnotation?.type === 'TEXT' ? selectedAnnotation : null;
   const selectedHighlightAnnotation = selectedAnnotation?.type === 'HIGHLIGHT' ? selectedAnnotation : null;
+  const selectedDrawAnnotation = selectedAnnotation?.type === 'DRAW' ? selectedAnnotation : null;
+  const selectedSignatureAnnotation = selectedAnnotation?.type === 'SIGNATURE' ? selectedAnnotation : null;
   const isTextDrafting = draftInput?.kind === 'TEXT';
   const showTextControls = activeTool === 'TEXT' || !!selectedTextAnnotation || isTextDrafting;
   const showHighlightControls = activeTool === 'HIGHLIGHT' || !!selectedHighlightAnnotation;
+  const showDrawControls = activeTool === 'DRAW' || !!selectedDrawAnnotation;
+  const showSignatureControls = activeTool === 'SIGNATURE' || !!selectedSignatureAnnotation;
   const showSelectionControls =
     !!selectedAnnotation &&
     activeTool === 'SELECT' &&
     !selectedTextAnnotation &&
-    !selectedHighlightAnnotation;
+    !selectedHighlightAnnotation &&
+    !selectedDrawAnnotation &&
+    !selectedSignatureAnnotation;
   const isSelectTool = activeTool === 'SELECT';
   const isTextTool = activeTool === 'TEXT';
   const isHighlightTool = activeTool === 'HIGHLIGHT';
   const isDrawTool = activeTool === 'DRAW';
+  const isSignatureTool = activeTool === 'SIGNATURE';
   const isCommentTool = activeTool === 'COMMENT';
   const activeTextColor = selectedTextAnnotation?.data?.color || penColor;
   const activeTextFont = selectedTextAnnotation?.data?.fontFamily || fontFamily;
   const activeTextSize = selectedTextAnnotation?.data?.fontSize || fontSize;
   const activeHighlightColor = selectedHighlightAnnotation?.data?.color || penColor;
-  const activeHighlightStrokeWidth = selectedHighlightAnnotation?.data?.strokeWidth || penWidth;
+  const activeHighlightStrokeWidth = selectedHighlightAnnotation
+    ? getCanvasStrokeWidth(selectedHighlightAnnotation.data, surfaceSize.width, penWidth)
+    : penWidth;
+  const activeDrawColor = selectedDrawAnnotation?.data?.color || penColor;
+  const activeDrawStrokeWidth = selectedDrawAnnotation
+    ? getCanvasStrokeWidth(selectedDrawAnnotation.data, surfaceSize.width, penWidth)
+    : penWidth;
+  const availableSignatureSlots = useMemo(
+    () =>
+      (['signature', 'initials'] as const)
+        .map((slotId) => parseSignatureSlot(slotId, signatureSlots[slotId]))
+        .filter((slot): slot is SavedSignatureSlot => !!slot),
+    [signatureSlots]
+  );
 
   const persistAnnotations = async (nextAnnotations: Annotation[]) => {
     if (!currentDocument || !user) return;
@@ -320,6 +705,23 @@ export default function EditorNative({ setView }: EditorProps) {
     };
   }, [annotations, currentDocument, user]);
 
+  useEffect(() => {
+    if (!user) {
+      setSignatureSlots({});
+      return;
+    }
+
+    const unsubscribe = onSnapshot(collection(db, `users/${user.uid}/signatureSlots`), (snapshot) => {
+      const nextSlots: Record<string, any> = {};
+      snapshot.docs.forEach((slotDoc) => {
+        nextSlots[slotDoc.id] = slotDoc.data();
+      });
+      setSignatureSlots(nextSlots);
+    });
+
+    return () => unsubscribe();
+  }, [user]);
+
   const handleExport = async () => {
     if (!currentDocument?.fileUrl) return;
     try {
@@ -340,6 +742,76 @@ export default function EditorNative({ setView }: EditorProps) {
 
   const beginCanvasGesture = (locationX: number, locationY: number) => {
     const point = clampPoint(locationX, locationY);
+
+    if (activeTool === 'SIGNATURE') {
+      if (activeFillSignAction === 'text') {
+        setDraftInput({ kind: 'TEXT', pageIndex: currentPage, x: point.x, y: point.y, value: '' });
+        setInputValue('');
+        return;
+      }
+
+      const createFillSignAnnotation = (data: Record<string, any>) => {
+        const annotation = stripUndefinedDeep({
+          id: nextId(),
+          type: 'SIGNATURE',
+          pageIndex: currentPage,
+          data,
+        } satisfies Annotation);
+        addAnnotation(annotation);
+        ignoreNextSelectPagePressRef.current = true;
+        setActiveTool('SELECT');
+        requestAnimationFrame(() => {
+          setSelectedAnnotation(annotation.id);
+        });
+      };
+
+      if (activeFillSignAction === 'sign') {
+        const slot = availableSignatureSlots.find((candidate) => candidate.id === activeSignatureSlotId) || availableSignatureSlots[0];
+        if (!slot) return;
+
+        const sourceBounds = getSignaturePathsBounds(slot.paths);
+        const targetWidth = slot.id === 'signature' ? 28 : 18;
+        const targetHeight = Math.max(
+          6,
+          slot.kind === 'image'
+            ? targetWidth / Math.max(slot.aspectRatio, 0.1)
+            : (sourceBounds.height / Math.max(sourceBounds.width, 1)) * targetWidth
+        );
+        createFillSignAnnotation({
+          kind: slot.id,
+          x: Math.max(0, Math.min(100 - targetWidth, point.x - targetWidth / 2)),
+          y: Math.max(0, Math.min(100 - targetHeight, point.y - targetHeight / 2)),
+          width: targetWidth,
+          height: targetHeight,
+          color: penColor,
+          slotType: slot.id,
+          slotContentKind: slot.kind,
+          paths: slot.paths,
+          imageUri: slot.imageUri,
+          aspectRatio: slot.aspectRatio,
+          sourceBounds,
+        });
+        return;
+      }
+
+      const defaultDimensions: Record<Exclude<FillSignAction, 'text' | 'sign'>, { width: number; height: number }> = {
+        cross: { width: 10, height: 10 },
+        check: { width: 10, height: 10 },
+        ellipse: { width: 12, height: 9 },
+        rect: { width: 12, height: 9 },
+        line: { width: 14, height: 3 },
+      };
+      const dimensions = defaultDimensions[activeFillSignAction];
+      createFillSignAnnotation({
+        kind: activeFillSignAction,
+        x: Math.max(0, Math.min(100 - dimensions.width, point.x - dimensions.width / 2)),
+        y: Math.max(0, Math.min(100 - dimensions.height, point.y - dimensions.height / 2)),
+        width: dimensions.width,
+        height: dimensions.height,
+        color: penColor,
+      });
+      return;
+    }
 
     if (activeTool === 'TEXT' || activeTool === 'COMMENT') {
       setDraftInput({ kind: activeTool, pageIndex: currentPage, x: point.x, y: point.y, value: '' });
@@ -373,7 +845,14 @@ export default function EditorNative({ setView }: EditorProps) {
   };
 
   const endCanvasGesture = () => {
-    const finalizedPoints = simplifyStrokePoints(drawPointsRef.current);
+    const finalizedPoints =
+      activeTool === 'DRAW'
+        ? simplifyStrokePoints(drawPointsRef.current, {
+            minDistance: MIN_STROKE_POINT_DISTANCE * 1.75,
+            angleThreshold: 0.22,
+            neighborDistanceMultiplier: 3.2,
+          })
+        : simplifyStrokePoints(drawPointsRef.current);
 
     if ((activeTool === 'DRAW' || activeTool === 'HIGHLIGHT') && finalizedPoints.length > 1) {
       addAnnotation({
@@ -383,13 +862,11 @@ export default function EditorNative({ setView }: EditorProps) {
         data: {
           points: finalizedPoints,
           color: activeTool === 'HIGHLIGHT' ? toHighlightColor(penColor) : penColor,
-          strokeWidth: activeTool === 'HIGHLIGHT' ? penWidth : Math.max(2, penWidth * 0.35),
+          strokeWidth: toRelativeStrokeWidth(penWidth, surfaceSize.width),
+          strokeWidthMode: RELATIVE_STROKE_WIDTH_MODE,
         },
       });
       setSelectedAnnotation(null);
-      if (activeTool === 'DRAW') {
-        setActiveTool('SELECT');
-      }
     }
     drawPointsRef.current = [];
     flushDrawPreview([]);
@@ -445,8 +922,12 @@ export default function EditorNative({ setView }: EditorProps) {
         },
       } satisfies Annotation);
       addAnnotation(annotation);
-      setSelectedAnnotation(annotation.id);
-      setActiveTool('SELECT');
+      if (activeTool === 'SIGNATURE' && annotation.type === 'TEXT') {
+        setSelectedAnnotation(null);
+      } else {
+        setSelectedAnnotation(annotation.id);
+        setActiveTool('SELECT');
+      }
       if (annotation.type === 'COMMENT') {
         setCommentViewer(annotation);
       }
@@ -465,7 +946,7 @@ export default function EditorNative({ setView }: EditorProps) {
   };
 
   const canvasGesture = useMemo(() => {
-    if (activeTool === 'TEXT' || activeTool === 'COMMENT') {
+    if (activeTool === 'TEXT' || activeTool === 'COMMENT' || activeTool === 'SIGNATURE') {
       return Gesture.Tap()
         .runOnJS(true)
         .onEnd((event) => {
@@ -476,6 +957,9 @@ export default function EditorNative({ setView }: EditorProps) {
     if (activeTool === 'DRAW' || activeTool === 'HIGHLIGHT') {
       return Gesture.Pan()
         .runOnJS(true)
+        .onTouchesDown(() => {
+          setIsCanvasInteracting(true);
+        })
         .onBegin((event) => {
           beginCanvasGesture(event.x, event.y);
         })
@@ -489,11 +973,12 @@ export default function EditorNative({ setView }: EditorProps) {
           if (drawPointsRef.current.length > 0) {
             endCanvasGesture();
           }
+          setIsCanvasInteracting(false);
         });
     }
 
     return Gesture.Tap().enabled(false);
-  }, [activeTool, currentPage, penColor, penWidth, surfaceSize.height, surfaceSize.width]);
+  }, [activeFillSignAction, activeSignatureSlotId, activeTool, availableSignatureSlots, currentPage, penColor, penWidth, surfaceSize.height, surfaceSize.width]);
 
   const updateSelectedTextStyle = (data: Partial<Annotation['data']>) => {
     if (!selectedTextAnnotation) return;
@@ -553,6 +1038,14 @@ export default function EditorNative({ setView }: EditorProps) {
       };
     }
 
+    if (annotation.type === 'SIGNATURE') {
+      return {
+        x: (annotation.data?.x || 0) + (annotation.data?.width || 0) / 2,
+        y: (annotation.data?.y || 0) + (annotation.data?.height || 0) / 2,
+        pageIndex: annotation.pageIndex,
+      };
+    }
+
     return null;
   };
 
@@ -575,19 +1068,23 @@ export default function EditorNative({ setView }: EditorProps) {
     };
   };
 
-  const applyZoom = (nextZoom: number) => {
-    const normalizedZoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, Number(nextZoom.toFixed(2))));
-    const focus = selectedAnnotationGlobal
-      ? getSelectionFocusPoint(selectedAnnotationGlobal)
-      : getViewportCenterFocusPoint();
+  const getZoomFocusPoint = () =>
+    selectedAnnotationGlobal ? getSelectionFocusPoint(selectedAnnotationGlobal) : getViewportCenterFocusPoint();
 
-    setZoom(normalizedZoom);
+  const normalizeZoom = (nextZoom: number) =>
+    Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, Number(nextZoom.toFixed(2))));
 
+  const recenterZoomToFocus = (normalizedZoom: number, focus: { x: number; y: number; pageIndex: number } | null) => {
     if (!focus) {
       return;
     }
 
-    requestAnimationFrame(() => {
+    if (zoomRecenterFrameRef.current !== null) {
+      cancelAnimationFrame(zoomRecenterFrameRef.current);
+    }
+
+    zoomRecenterFrameRef.current = requestAnimationFrame(() => {
+      zoomRecenterFrameRef.current = null;
       const nextRenderPageWidth = surfaceSize.width * normalizedZoom;
       const nextRenderPageHeight = surfaceSize.height * normalizedZoom;
       const horizontalContentWidth = Math.max(editorViewportSize.width, nextRenderPageWidth + 40);
@@ -607,38 +1104,71 @@ export default function EditorNative({ setView }: EditorProps) {
     });
   };
 
+  const applyZoom = (nextZoom: number, focusOverride?: { x: number; y: number; pageIndex: number } | null) => {
+    const normalizedZoom = normalizeZoom(nextZoom);
+    const focus = focusOverride === undefined ? getZoomFocusPoint() : focusOverride;
+
+    setZoom(normalizedZoom);
+    recenterZoomToFocus(normalizedZoom, focus);
+  };
+
+  const applyPinchZoom = (nextZoom: number) => {
+    const normalizedZoom = normalizeZoom(nextZoom);
+    setZoom(normalizedZoom);
+  };
+
+  const commitPinchZoom = (nextZoom: number) => {
+    const normalizedZoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, Number(nextZoom.toFixed(2))));
+    setZoom(normalizedZoom);
+    recenterZoomToFocus(normalizedZoom, pinchFocusPointRef.current);
+  };
+
   const pinchGesture = useMemo(
     () =>
       Gesture.Pinch()
         .runOnJS(true)
         .onBegin(() => {
           pinchStartZoomRef.current = zoom;
+          pinchFocusPointRef.current = getZoomFocusPoint();
         })
         .onUpdate((event) => {
-          applyZoom(pinchStartZoomRef.current * event.scale);
+          applyPinchZoom(pinchStartZoomRef.current * event.scale);
+        })
+        .onEnd((event) => {
+          commitPinchZoom(pinchStartZoomRef.current * event.scale);
+        })
+        .onFinalize(() => {
+          pinchFocusPointRef.current = null;
         }),
-    [applyZoom, zoom]
+    [commitPinchZoom, getZoomFocusPoint, zoom]
   );
 
+  const selectedFillSignAction = getFillSignActionForAnnotation(selectedSignatureAnnotation);
+  const effectiveFillSignAction = selectedSignatureAnnotation ? (selectedFillSignAction || activeFillSignAction) : activeFillSignAction;
+  const activeDisplayedSignatureSlot =
+    availableSignatureSlots.find((slot) => slot.id === (selectedSignatureAnnotation?.data?.slotType || activeSignatureSlotId)) ||
+    availableSignatureSlots[0] ||
+    null;
+
   return (
-    <SafeAreaView style={styles.container} edges={['top']}>
+    <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
       <View style={styles.header}>
         <View style={styles.headerLeft}>
-          <TouchableOpacity onPress={() => setView('dashboard')} style={styles.backButton}>
-            <ChevronLeft size={24} color="#fff" />
-          </TouchableOpacity>
+          <NeumorphicButton radius={14} onPress={() => setView('dashboard')} layerStyle={styles.backButton}>
+            <ChevronLeft size={24} color={theme.colors.textMuted} />
+          </NeumorphicButton>
           <View>
             <Text style={styles.title} numberOfLines={1}>{currentDocument?.title}</Text>
           </View>
         </View>
 
         <View style={styles.headerActions}>
-          <TouchableOpacity onPress={undo} disabled={!canUndo} style={[styles.actionBtn, !canUndo && styles.disabledBtn]}>
-            <Undo2 size={20} color="#fff" />
-          </TouchableOpacity>
-          <TouchableOpacity onPress={redo} disabled={!canRedo} style={[styles.actionBtn, !canRedo && styles.disabledBtn]}>
-            <Redo2 size={20} color="#fff" />
-          </TouchableOpacity>
+          <NeumorphicButton radius={14} onPress={undo} disabled={!canUndo} layerStyle={[styles.actionBtn, !canUndo && styles.disabledBtn]}>
+            <Undo2 size={20} color={theme.colors.textMuted} />
+          </NeumorphicButton>
+          <NeumorphicButton radius={14} onPress={redo} disabled={!canRedo} layerStyle={[styles.actionBtn, !canRedo && styles.disabledBtn]}>
+            <Redo2 size={20} color={theme.colors.textMuted} />
+          </NeumorphicButton>
         </View>
       </View>
 
@@ -653,7 +1183,7 @@ export default function EditorNative({ setView }: EditorProps) {
       </View>
 
       {showSelectionControls && (
-        <View style={styles.contextBar}>
+        <NeumorphicView radius={16} style={styles.contextBar}>
           <Text style={styles.contextTitle}>Selected {selectedAnnotation.type}</Text>
           <View style={styles.contextRow}>
             <TouchableOpacity style={styles.miniBtn} onPress={() => nudgeSelectedAnnotation(-2, 0)}>
@@ -675,7 +1205,7 @@ export default function EditorNative({ setView }: EditorProps) {
               <Text style={styles.deleteBtnText}>Delete</Text>
             </TouchableOpacity>
           </View>
-        </View>
+        </NeumorphicView>
       )}
 
       <GestureDetector gesture={pinchGesture}>
@@ -690,6 +1220,7 @@ export default function EditorNative({ setView }: EditorProps) {
         >
           <ScrollView
             ref={verticalScrollRef}
+            scrollEnabled={!isOverlayInteracting && !isCanvasInteracting}
             contentContainerStyle={styles.editorScrollContent}
             showsVerticalScrollIndicator={false}
             showsHorizontalScrollIndicator={false}
@@ -709,6 +1240,7 @@ export default function EditorNative({ setView }: EditorProps) {
             <ScrollView
               ref={horizontalScrollRef}
               horizontal
+              scrollEnabled={!isOverlayInteracting && !isCanvasInteracting}
               showsHorizontalScrollIndicator={false}
               contentContainerStyle={styles.pageWrapper}
               onScroll={(event) => {
@@ -745,7 +1277,6 @@ export default function EditorNative({ setView }: EditorProps) {
                       activeTextColor={activeTextColor}
                       activeTextFont={activeTextFont}
                       activeTextSize={activeTextSize}
-                      zoom={zoom}
                       isTextDrafting={isActivePage && isTextDrafting}
                       draftInput={isActivePage ? draftInput : null}
                       inputValue={inputValue}
@@ -756,6 +1287,10 @@ export default function EditorNative({ setView }: EditorProps) {
                         currentPageRef.current = pageIndex;
                         setCurrentPage(pageIndex);
                         if (activeTool === 'SELECT') {
+                          if (ignoreNextSelectPagePressRef.current) {
+                            ignoreNextSelectPagePressRef.current = false;
+                            return;
+                          }
                           setSelectedAnnotation(null);
                         }
                       }}
@@ -795,6 +1330,8 @@ export default function EditorNative({ setView }: EditorProps) {
                       }}
                       onSetSelectedAnnotation={setSelectedAnnotation}
                       onBeginTextAnnotationEdit={beginTextAnnotationEdit}
+                      onOverlayInteractionStart={() => setIsOverlayInteracting(true)}
+                      onOverlayInteractionEnd={() => setIsOverlayInteracting(false)}
                       onApplyTextFontSizeDelta={(delta) => {
                         applyTextStyleUpdate({
                           fontSize: Math.max(12, activeTextSize + delta),
@@ -890,14 +1427,15 @@ export default function EditorNative({ setView }: EditorProps) {
               ))}
             </ScrollView>
 
-            <HighlightWidthSlider
+            <StrokeWidthSlider
               value={activeHighlightStrokeWidth}
               onChange={(nextWidth) => {
                 if (selectedHighlightAnnotation) {
                   updateAnnotation(selectedHighlightAnnotation.id, {
                     data: {
                       ...selectedHighlightAnnotation.data,
-                      strokeWidth: nextWidth,
+                      strokeWidth: toRelativeStrokeWidth(nextWidth, surfaceSize.width),
+                      strokeWidthMode: RELATIVE_STROKE_WIDTH_MODE,
                     },
                   });
                 } else {
@@ -906,12 +1444,206 @@ export default function EditorNative({ setView }: EditorProps) {
               }}
             />
           </View>
+        ) : showDrawControls ? (
+          <View style={styles.contextBarBottom}>
+            <View style={styles.contextHeader}>
+              <Text style={styles.contextTitle}>{selectedDrawAnnotation ? 'Selected Drawing' : 'Draw Tool'}</Text>
+              <TouchableOpacity
+                style={styles.doneBtn}
+                onPress={() => {
+                  setActiveTool('SELECT');
+                  setSelectedAnnotation(null);
+                }}
+              >
+                <Check size={18} color="#000" />
+                <Text style={styles.doneBtnText}>Done</Text>
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.swatchRow}>
+              {TEXT_COLORS.map((color) => (
+                <TouchableOpacity
+                  key={color}
+                  style={[
+                    styles.colorSwatchLarge,
+                    { backgroundColor: color },
+                    activeDrawColor === color && styles.colorSwatchActive,
+                  ]}
+                  onPress={() => {
+                    if (selectedDrawAnnotation) {
+                      updateAnnotation(selectedDrawAnnotation.id, {
+                        data: {
+                          ...selectedDrawAnnotation.data,
+                          color,
+                        },
+                      });
+                    } else {
+                      setPenColor(color);
+                    }
+                  }}
+                />
+              ))}
+            </ScrollView>
+
+            <StrokeWidthSlider
+              value={activeDrawStrokeWidth}
+              onChange={(nextWidth) => {
+                if (selectedDrawAnnotation) {
+                  updateAnnotation(selectedDrawAnnotation.id, {
+                    data: {
+                      ...selectedDrawAnnotation.data,
+                      strokeWidth: toRelativeStrokeWidth(nextWidth, surfaceSize.width),
+                      strokeWidthMode: RELATIVE_STROKE_WIDTH_MODE,
+                    },
+                  });
+                } else {
+                  setPenWidth(nextWidth);
+                }
+              }}
+            />
+          </View>
+        ) : showSignatureControls ? (
+          <View style={styles.contextBarBottom}>
+            <View style={styles.contextHeader}>
+              <Text style={styles.contextTitle}>Fill & Sign</Text>
+              <TouchableOpacity
+                style={styles.doneBtn}
+                onPress={() => {
+                  setActiveSignatureSlotId(null);
+                  if (selectedSignatureAnnotation) {
+                    setSelectedAnnotation(null);
+                  } else {
+                    setActiveTool('SELECT');
+                    setSelectedAnnotation(null);
+                  }
+                }}
+              >
+                <Check size={18} color="#000" />
+                <Text style={styles.doneBtnText}>Done</Text>
+              </TouchableOpacity>
+            </View>
+
+            {effectiveFillSignAction === 'sign' && (
+              <View style={styles.signatureTray}>
+                {availableSignatureSlots.length === 0 ? (
+                  <Text style={styles.signatureTrayEmpty}>No saved signature yet. Create one in Signature Hub first.</Text>
+                ) : (
+                  <>
+                    <View style={styles.signatureTabRow}>
+                      {availableSignatureSlots.map((slot) => {
+                        const isActiveSlot = activeDisplayedSignatureSlot?.id === slot.id;
+                        return (
+                          <TouchableOpacity
+                            key={`${slot.id}-tab`}
+                            style={[styles.signatureTab, isActiveSlot && styles.signatureTabActive]}
+                            onPress={() => setActiveSignatureSlotId(slot.id)}
+                          >
+                            <Text style={[styles.signatureTabText, isActiveSlot && styles.signatureTabTextActive]}>
+                              {slot.label}
+                            </Text>
+                          </TouchableOpacity>
+                        );
+                      })}
+                      <TouchableOpacity
+                        style={styles.signatureTabEditBtn}
+                        onPress={() => setView('signatures')}
+                      >
+                        <SquarePen size={16} color="#111" />
+                      </TouchableOpacity>
+                    </View>
+                    {activeDisplayedSignatureSlot && (
+                      <View style={styles.signatureTrayCard}>
+                        <View style={styles.signatureTrayPreview}>
+                          {(() => {
+                            if (activeDisplayedSignatureSlot.kind === 'image' && activeDisplayedSignatureSlot.imageUri) {
+                              return (
+                                <Svg style={StyleSheet.absoluteFill}>
+                                  <SvgImage
+                                    href={{ uri: activeDisplayedSignatureSlot.imageUri }}
+                                    x={0}
+                                    y={0}
+                                    width="100%"
+                                    height="100%"
+                                    preserveAspectRatio="xMidYMid meet"
+                                  />
+                                </Svg>
+                              );
+                            }
+
+                            const slotBounds = getSignaturePathsBounds(activeDisplayedSignatureSlot.paths);
+                            return (
+                              <Svg
+                                style={StyleSheet.absoluteFill}
+                                viewBox={`0 0 ${Math.max(slotBounds.width, 1)} ${Math.max(slotBounds.height, 1)}`}
+                              >
+                                <G translateX={-slotBounds.minX} translateY={-slotBounds.minY}>
+                                  {activeDisplayedSignatureSlot.paths.map((path, index) => (
+                                    <SvgPath
+                                      key={`${activeDisplayedSignatureSlot.id}-tray-path-${index}`}
+                                      d={path}
+                                      stroke={penColor}
+                                      strokeWidth={3}
+                                      fill="none"
+                                      strokeLinecap="round"
+                                      strokeLinejoin="round"
+                                    />
+                                  ))}
+                                </G>
+                              </Svg>
+                            );
+                          })()}
+                        </View>
+                      </View>
+                    )}
+                  </>
+                )}
+              </View>
+            )}
+
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.swatchRow}>
+              {TEXT_COLORS.map((color) => (
+                <TouchableOpacity
+                  key={color}
+                  style={[
+                    styles.colorSwatchLarge,
+                    { backgroundColor: color },
+                    (selectedSignatureAnnotation?.data?.color || penColor) === color && styles.colorSwatchActive,
+                  ]}
+                  onPress={() => {
+                    if (selectedSignatureAnnotation) {
+                      updateAnnotation(selectedSignatureAnnotation.id, {
+                        data: {
+                          ...selectedSignatureAnnotation.data,
+                          color,
+                        },
+                      });
+                    } else {
+                      setPenColor(color);
+                    }
+                  }}
+                />
+              ))}
+            </ScrollView>
+
+            {effectiveFillSignAction !== 'sign' && (
+              <View style={styles.fillSignActionRow}>
+                <ToolButtonLite icon={Type} active={effectiveFillSignAction === 'text'} onPress={() => !selectedSignatureAnnotation && setActiveFillSignAction('text')} />
+                <ToolButtonLite icon={X} active={effectiveFillSignAction === 'cross'} onPress={() => !selectedSignatureAnnotation && setActiveFillSignAction('cross')} />
+                <ToolButtonLite icon={Check} active={effectiveFillSignAction === 'check'} onPress={() => !selectedSignatureAnnotation && setActiveFillSignAction('check')} />
+                <ToolButtonLite icon={CircleIcon} active={effectiveFillSignAction === 'ellipse'} onPress={() => !selectedSignatureAnnotation && setActiveFillSignAction('ellipse')} />
+                <ToolButtonLite icon={Square} active={effectiveFillSignAction === 'rect'} onPress={() => !selectedSignatureAnnotation && setActiveFillSignAction('rect')} />
+                <ToolButtonLite icon={Minus} active={effectiveFillSignAction === 'line'} onPress={() => !selectedSignatureAnnotation && setActiveFillSignAction('line')} />
+                <ToolButtonLite icon={PenTool} active={false} onPress={() => !selectedSignatureAnnotation && setActiveFillSignAction('sign')} />
+              </View>
+            )}
+          </View>
         ) : (
           <View style={styles.toolbar}>
             <ToolButton icon={MousePointer2} active={isSelectTool} onPress={() => setActiveTool('SELECT')} />
             <ToolButton icon={Type} active={isTextTool} onPress={() => setActiveTool('TEXT')} />
             <ToolButton icon={Highlighter} active={isHighlightTool} onPress={() => setActiveTool('HIGHLIGHT')} />
-            <ToolButton icon={PenTool} active={isDrawTool} onPress={() => setActiveTool('DRAW')} />
+            <ToolButton icon={LineSquiggle} active={isDrawTool} onPress={() => setActiveTool('DRAW')} />
+            <ToolButton icon={PenTool} active={isSignatureTool} onPress={() => setActiveTool('SIGNATURE')} />
             <ToolButton icon={MessageSquare} active={isCommentTool} onPress={() => setActiveTool('COMMENT')} />
             <View style={styles.toolDivider} />
             <TouchableOpacity style={styles.exportBtn} onPress={handleExport}>
@@ -1010,6 +1742,8 @@ const PdfPageCard = memo(function PdfPageCard({
   onRemoveAnnotation,
   onSetSelectedAnnotation,
   onBeginTextAnnotationEdit,
+  onOverlayInteractionStart,
+  onOverlayInteractionEnd,
   onApplyTextFontSizeDelta,
 }: {
   pageIndex: number;
@@ -1048,6 +1782,8 @@ const PdfPageCard = memo(function PdfPageCard({
   onRemoveAnnotation: (annotationId: string) => void;
   onSetSelectedAnnotation: (id: string | null) => void;
   onBeginTextAnnotationEdit: (annotation: Annotation) => void;
+  onOverlayInteractionStart: () => void;
+  onOverlayInteractionEnd: () => void;
   onApplyTextFontSizeDelta: (delta: number) => void;
 }) {
   return (
@@ -1095,6 +1831,12 @@ const PdfPageCard = memo(function PdfPageCard({
               height={surfaceHeight}
               selectedAnnotationId={selectedAnnotationId}
             />
+            <SignatureAnnotationsCanvas
+              annotations={annotations}
+              width={surfaceWidth}
+              height={surfaceHeight}
+              selectedAnnotationId={selectedAnnotationId}
+            />
             <VectorAnnotationsCanvas
               annotations={annotations}
               drawPoints={drawPoints}
@@ -1135,12 +1877,22 @@ const PdfPageCard = memo(function PdfPageCard({
                       },
                     });
                   }}
+                  onRotate={(rotation) => {
+                    onUpdateAnnotation(annotation.id, {
+                      data: {
+                        ...annotation.data,
+                        rotation,
+                      },
+                    });
+                  }}
                   onDecrease={() => onApplyTextFontSizeDelta(-2)}
                   onIncrease={() => onApplyTextFontSizeDelta(2)}
                   onDelete={() => {
                     onRemoveAnnotation(annotation.id);
                   }}
                   onEdit={() => onBeginTextAnnotationEdit(annotation)}
+                  onInteractionStart={onOverlayInteractionStart}
+                  onInteractionEnd={onOverlayInteractionEnd}
                 />
                 )
               ) : annotation.id === selectedAnnotationId && annotation.type === 'HIGHLIGHT' ? (
@@ -1165,6 +1917,89 @@ const PdfPageCard = memo(function PdfPageCard({
                         ...annotation.data,
                         points,
                         strokeWidth,
+                        strokeWidthMode: RELATIVE_STROKE_WIDTH_MODE,
+                      },
+                    });
+                  }}
+                  onRotate={(rotation) => {
+                    onUpdateAnnotation(annotation.id, {
+                      data: {
+                        ...annotation.data,
+                        rotation,
+                      },
+                    });
+                  }}
+                  onDelete={() => {
+                    onRemoveAnnotation(annotation.id);
+                  }}
+                />
+              ) : annotation.id === selectedAnnotationId && annotation.type === 'DRAW' ? (
+                <SelectedDrawOverlay
+                  key={annotation.id}
+                  annotation={annotation}
+                  width={surfaceWidth}
+                  height={surfaceHeight}
+                  zoom={zoom}
+                  onPress={() => onSetSelectedAnnotation(annotation.id)}
+                  onDragEnd={(points) => {
+                    onUpdateAnnotation(annotation.id, {
+                      data: {
+                        ...annotation.data,
+                        points,
+                      },
+                    });
+                  }}
+                  onResize={({ points, strokeWidth }) => {
+                    onUpdateAnnotation(annotation.id, {
+                      data: {
+                        ...annotation.data,
+                        points,
+                        strokeWidth,
+                        strokeWidthMode: RELATIVE_STROKE_WIDTH_MODE,
+                      },
+                    });
+                  }}
+                  onRotate={(rotation) => {
+                    onUpdateAnnotation(annotation.id, {
+                      data: {
+                        ...annotation.data,
+                        rotation,
+                      },
+                    });
+                  }}
+                  onDelete={() => {
+                    onRemoveAnnotation(annotation.id);
+                  }}
+                />
+              ) : annotation.id === selectedAnnotationId && annotation.type === 'SIGNATURE' ? (
+                <SelectedFillSignOverlay
+                  key={annotation.id}
+                  annotation={annotation}
+                  width={surfaceWidth}
+                  height={surfaceHeight}
+                  zoom={zoom}
+                  onPress={() => onSetSelectedAnnotation(annotation.id)}
+                  onDragEnd={(position) => {
+                    onUpdateAnnotation(annotation.id, {
+                      data: {
+                        ...annotation.data,
+                        ...position,
+                      },
+                    });
+                  }}
+                  onResize={(size) => {
+                    onUpdateAnnotation(annotation.id, {
+                      data: {
+                        ...annotation.data,
+                        ...size,
+                      },
+                    });
+                  }}
+                  onRotate={(rotation) => {
+                    onUpdateAnnotation(annotation.id, {
+                      data: {
+                        ...annotation.data,
+                        rotation,
                       },
                     });
                   }}
@@ -1230,8 +2065,9 @@ const PdfPageCard = memo(function PdfPageCard({
                   styles.inlineTextInput,
                   {
                     color: activeTextColor,
-                    fontFamily: activeTextFont,
+                    fontFamily: getRenderableFontFamily(inputValue, activeTextFont),
                     fontSize: activeTextSize,
+                    ...getTextDirectionStyle(inputValue),
                   },
                 ]}
               />
@@ -1352,13 +2188,21 @@ const PdfPageSurface = memo(function PdfPageSurface({
 
 function ToolButton({ icon: Icon, active, onPress }: { icon: any; active: boolean; onPress: () => void }) {
   return (
-    <TouchableOpacity style={[styles.toolBtn, active && styles.activeToolBtn]} onPress={onPress}>
+    <NeumorphicButton radius={14} onPress={onPress} layerStyle={[styles.toolBtn, active && styles.activeToolBtn]}>
       <Icon size={24} color={active ? '#000' : 'rgba(255,255,255,0.4)'} />
-    </TouchableOpacity>
+    </NeumorphicButton>
   );
 }
 
-function HighlightWidthSlider({ value, onChange }: { value: number; onChange: (value: number) => void }) {
+function ToolButtonLite({ icon: Icon, active, onPress }: { icon: any; active: boolean; onPress: () => void }) {
+  return (
+    <NeumorphicButton radius={12} onPress={onPress} layerStyle={[styles.fillSignActionBtn, active && styles.fillSignActionBtnActive]}>
+      <Icon size={24} color={active ? '#60a5fa' : 'rgba(255,255,255,0.82)'} />
+    </NeumorphicButton>
+  );
+}
+
+function StrokeWidthSlider({ value, onChange }: { value: number; onChange: (value: number) => void }) {
   const [trackWidth, setTrackWidth] = useState(0);
   const [previewValue, setPreviewValue] = useState(value);
   const [isDragging, setIsDragging] = useState(false);
@@ -1488,12 +2332,18 @@ function ZoomSlider({ value, onChange }: { value: number; onChange: (value: numb
   );
 }
 
-function toSvgPath(points: Array<{ x: number; y: number }>, width: number, height: number) {
+function toSvgPath(
+  points: Array<{ x: number; y: number }>,
+  width: number,
+  height: number,
+  offsetX = 0,
+  offsetY = 0
+) {
   if (points.length === 0) return '';
 
   const scaledPoints = points.map((point) => ({
-    x: (point.x / 100) * width,
-    y: (point.y / 100) * height,
+    x: (point.x / 100) * width - offsetX,
+    y: (point.y / 100) * height - offsetY,
   }));
 
   if (scaledPoints.length === 1) {
@@ -1526,6 +2376,18 @@ function toSvgPath(points: Array<{ x: number; y: number }>, width: number, heigh
   return path;
 }
 
+function toPolylineSvgPath(points: Array<{ x: number; y: number }>, width: number, height: number) {
+  if (points.length === 0) return '';
+
+  return points
+    .map((point, index) => {
+      const x = (point.x / 100) * width;
+      const y = (point.y / 100) * height;
+      return `${index === 0 ? 'M' : 'L'} ${x} ${y}`;
+    })
+    .join(' ');
+}
+
 function getHighlightScreenBounds(
   points: Array<{ x: number; y: number }>,
   width: number,
@@ -1543,6 +2405,28 @@ function getHighlightScreenBounds(
     left: minX,
     top: minY - strokePadding,
     width: Math.max(maxX - minX, 0),
+    height: Math.max(maxY - minY, 0) + strokeWidth,
+    strokePadding,
+  };
+}
+
+function getDrawScreenBounds(
+  points: Array<{ x: number; y: number }>,
+  width: number,
+  height: number,
+  strokeWidth: number
+) {
+  const bounds = getPointsBounds(points);
+  const strokePadding = strokeWidth / 2;
+  const minX = (bounds.minX / 100) * width;
+  const maxX = (bounds.maxX / 100) * width;
+  const minY = (bounds.minY / 100) * height;
+  const maxY = (bounds.maxY / 100) * height;
+
+  return {
+    left: minX - strokePadding,
+    top: minY - strokePadding,
+    width: Math.max(maxX - minX, 0) + strokeWidth,
     height: Math.max(maxY - minY, 0) + strokeWidth,
     strokePadding,
   };
@@ -1582,6 +2466,23 @@ function getResizedTextFontSize(
   return Math.max(12, startFontSize * Math.max(widthScale, heightScale));
 }
 
+function getRotationDegrees(data: Annotation['data']) {
+  const value = Number(data?.rotation || 0);
+  if (!Number.isFinite(value)) return 0;
+  return value;
+}
+
+function normalizeRotationDegrees(value: number) {
+  const normalized = value % 360;
+  if (normalized > 180) return normalized - 360;
+  if (normalized < -180) return normalized + 360;
+  return normalized;
+}
+
+function getRotationFromGesture(startRotation: number, translationX: number, translationY: number) {
+  return normalizeRotationDegrees(startRotation + (translationX - translationY) * 0.35);
+}
+
 function toHighlightColor(color: string) {
   if (color.startsWith('rgba(')) return color;
   if (color.startsWith('rgb(')) {
@@ -1605,7 +2506,18 @@ function getPointDistance(a: { x: number; y: number }, b: { x: number; y: number
   return Math.hypot(b.x - a.x, b.y - a.y);
 }
 
-function simplifyStrokePoints(points: Array<{ x: number; y: number }>) {
+function simplifyStrokePoints(
+  points: Array<{ x: number; y: number }>,
+  {
+    minDistance = MIN_STROKE_POINT_DISTANCE,
+    angleThreshold = 0.12,
+    neighborDistanceMultiplier = 2.2,
+  }: {
+    minDistance?: number;
+    angleThreshold?: number;
+    neighborDistanceMultiplier?: number;
+  } = {}
+) {
   if (points.length < 3) return points;
 
   const simplified = [points[0]];
@@ -1615,7 +2527,7 @@ function simplifyStrokePoints(points: Array<{ x: number; y: number }>) {
     const current = points[index];
     const next = points[index + 1];
 
-    if (getPointDistance(previous, current) < MIN_STROKE_POINT_DISTANCE) {
+    if (getPointDistance(previous, current) < minDistance) {
       continue;
     }
 
@@ -1623,7 +2535,7 @@ function simplifyStrokePoints(points: Array<{ x: number; y: number }>) {
     const nextAngle = Math.atan2(next.y - current.y, next.x - current.x);
     const angleDelta = Math.abs(previousAngle - nextAngle);
 
-    if (angleDelta < 0.12 && getPointDistance(current, next) < MIN_STROKE_POINT_DISTANCE * 2.2) {
+    if (angleDelta < angleThreshold && getPointDistance(current, next) < minDistance * neighborDistanceMultiplier) {
       continue;
     }
 
@@ -1636,16 +2548,18 @@ function simplifyStrokePoints(points: Array<{ x: number; y: number }>) {
 
 function getTextMetrics(data: Annotation['data']) {
   const fontSize = data?.fontSize || 16;
-  const lineHeight = fontSize * 0.88;
-  const lines = String(data?.text || '').split('\n');
+  const textValue = String(data?.text || '');
+  const isRTL = isRTLText(textValue);
+  const lines = textValue.split('\n');
   const longestLine = lines.reduce((max, line) => Math.max(max, line.length), 1);
-  const fontFamily = data?.fontFamily || 'System';
-  const widthRatio = TEXT_WIDTH_RATIO_MAP[fontFamily] || TEXT_WIDTH_RATIO_MAP.System;
-  const widthBuffer = TEXT_WIDTH_BUFFER_MAP[fontFamily] || TEXT_WIDTH_BUFFER_MAP.System;
-  const horizontalPadding = 0;
-  const verticalPadding = 0;
-  const ascent = fontSize * TEXT_ASCENT_RATIO;
-  const descent = fontSize * TEXT_DESCENT_RATIO;
+  const fontFamily = getEffectiveFontFamilyName(textValue, data?.fontFamily);
+  const presetMap = isRTL ? RTL_TEXT_METRICS_PRESETS : LTR_TEXT_METRICS_PRESETS;
+  const preset = presetMap[fontFamily] || presetMap.System || DEFAULT_TEXT_METRICS_PRESET;
+  const lineHeight = fontSize * preset.lineHeightRatio;
+  const horizontalPadding = fontSize * preset.horizontalPaddingRatio;
+  const verticalPadding = fontSize * preset.verticalPaddingRatio;
+  const ascent = fontSize * preset.ascentRatio;
+  const descent = fontSize * preset.descentRatio;
   return {
     fontSize,
     lineHeight,
@@ -1654,13 +2568,36 @@ function getTextMetrics(data: Annotation['data']) {
     lines,
     horizontalPadding,
     verticalPadding,
-    width: Math.max(12, longestLine * fontSize * widthRatio + widthBuffer),
-    height: Math.max(fontSize * 0.84, ascent + descent + Math.max(0, lines.length - 1) * lineHeight),
+    width: Math.max(12, longestLine * fontSize * preset.widthRatio + preset.widthBuffer),
+    height: Math.max(fontSize * preset.minHeightRatio, ascent + descent + Math.max(0, lines.length - 1) * lineHeight),
   };
 }
 
+function getNativeFontFamily(fontFamily?: string) {
+  const normalizedFont = fontFamily || 'System';
+  return BUNDLED_FONT_FAMILY_MAP[normalizedFont] || BUNDLED_FONT_FAMILY_MAP.System;
+}
+
+function getEffectiveFontFamilyName(textValue: string, fontFamily?: string) {
+  const normalizedFont = fontFamily || 'System';
+
+  if (!isRTLText(textValue)) {
+    return normalizedFont;
+  }
+
+  if (HEBREW_CAPABLE_FONT_FAMILIES.has(normalizedFont)) {
+    return normalizedFont;
+  }
+
+  return 'Assistant';
+}
+
+function getRenderableFontFamily(textValue: string, fontFamily?: string) {
+  return getNativeFontFamily(getEffectiveFontFamilyName(textValue, fontFamily));
+}
+
 function getSkiaFontFamily(fontFamily?: string) {
-  return SKIA_FONT_FAMILY_MAP[fontFamily || ''] || 'Helvetica';
+  return getNativeFontFamily(fontFamily);
 }
 
 function getPointsBounds(points: Array<{ x: number; y: number }>) {
@@ -1731,34 +2668,45 @@ const TextAnnotationsCanvas = memo(function TextAnnotationsCanvas({
   if (textAnnotations.length === 0) return null;
 
   return (
-    <Canvas style={StyleSheet.absoluteFill} pointerEvents="none">
+    <View style={StyleSheet.absoluteFill} pointerEvents="none">
       {textAnnotations.map((annotation) => {
         const metrics = getTextMetrics(annotation.data);
         const x = (annotation.data?.x / 100) * width;
         const y = (annotation.data?.y / 100) * height;
-        const font = matchFont({
-          fontFamily: getSkiaFontFamily(annotation.data?.fontFamily),
-          fontSize: metrics.fontSize,
-          fontStyle: 'normal',
-          fontWeight: '700',
-        });
+        const textValue = String(annotation.data?.text || '');
+        const rotation = getRotationDegrees(annotation.data);
+        const boxWidth = metrics.width + metrics.horizontalPadding * 2;
+        const boxHeight = metrics.height + metrics.verticalPadding * 2;
 
         return (
-          <Fragment key={`${annotation.id}-canvas-group`}>
-            {metrics.lines.map((line, index) => (
-              <SkiaText
-                key={`${annotation.id}-canvas-line-${index}`}
-                x={x}
-                y={y + index * metrics.lineHeight}
-                text={line || ' '}
-                font={font}
-                color={annotation.data?.color || '#111827'}
-              />
-            ))}
-          </Fragment>
+          <View
+            key={`${annotation.id}-canvas-group`}
+            style={[
+              styles.annotationTextContent,
+              {
+                left: x - metrics.horizontalPadding,
+                top: y - metrics.ascent - metrics.verticalPadding,
+                width: boxWidth,
+                minHeight: boxHeight,
+                transform: [{ rotate: `${rotation}deg` }],
+              },
+            ]}
+          >
+            <Text
+              style={{
+                color: annotation.data?.color || '#111827',
+                fontFamily: getRenderableFontFamily(textValue, annotation.data?.fontFamily),
+                fontSize: metrics.fontSize,
+                lineHeight: metrics.lineHeight,
+                ...getTextDirectionStyle(textValue),
+              }}
+            >
+              {textValue}
+            </Text>
+          </View>
         );
       })}
-    </Canvas>
+    </View>
   );
 });
 
@@ -1786,7 +2734,10 @@ const VectorAnnotationsCanvas = memo(function VectorAnnotationsCanvas({
       annotations.filter(
         (annotation) =>
           (annotation.type === 'DRAW' || annotation.type === 'HIGHLIGHT') &&
-          !(annotation.type === 'HIGHLIGHT' && annotation.id === selectedAnnotationId)
+          !(
+            (annotation.type === 'HIGHLIGHT' || annotation.type === 'DRAW') &&
+            annotation.id === selectedAnnotationId
+          )
       ),
     [annotations, selectedAnnotationId]
   );
@@ -1794,10 +2745,12 @@ const VectorAnnotationsCanvas = memo(function VectorAnnotationsCanvas({
     () =>
       drawPoints.length > 1
         ? Skia.Path.MakeFromSVGString(
-            toSvgPath(drawPoints, width, height)
+            activeTool === 'DRAW'
+              ? toPolylineSvgPath(drawPoints, width, height)
+              : toSvgPath(drawPoints, width, height)
           )
         : null,
-    [drawPoints, height, width]
+    [activeTool, drawPoints, height, width]
   );
 
   if (vectorAnnotations.length === 0 && !livePath) return null;
@@ -1808,23 +2761,37 @@ const VectorAnnotationsCanvas = memo(function VectorAnnotationsCanvas({
         const points = annotation.data?.points || [];
         if (points.length < 2) return null;
         if (annotation.type === 'HIGHLIGHT') {
+          const canvasStrokeWidth = getCanvasStrokeWidth(annotation.data, width, HIGHLIGHT_DEFAULT_WIDTH);
           const rect = getHighlightRenderRect(
             points,
             width,
             height,
-            annotation.data?.strokeWidth || HIGHLIGHT_DEFAULT_WIDTH
+            canvasStrokeWidth
           );
+          const rotation = (getRotationDegrees(annotation.data) * Math.PI) / 180;
+          const centerX = rect.x + rect.width / 2;
+          const centerY = rect.y + rect.height / 2;
 
           return (
-            <SkiaRect
+            <SkiaGroup
               key={`${annotation.id}-highlight-rect`}
-              x={rect.x}
-              y={rect.y}
-              width={rect.width}
-              height={rect.height}
-              color={annotation.data?.color || 'rgba(251,191,36,0.45)'}
-              style="fill"
-            />
+              transform={[
+                { translateX: centerX },
+                { translateY: centerY },
+                { rotate: rotation },
+                { translateX: -centerX },
+                { translateY: -centerY },
+              ]}
+            >
+              <SkiaRect
+                x={rect.x}
+                y={rect.y}
+                width={rect.width}
+                height={rect.height}
+                color={annotation.data?.color || 'rgba(251,191,36,0.45)'}
+                style="fill"
+              />
+            </SkiaGroup>
           );
         }
 
@@ -1832,17 +2799,31 @@ const VectorAnnotationsCanvas = memo(function VectorAnnotationsCanvas({
           toSvgPath(points, width, height)
         );
         if (!path) return null;
+        const bounds = getPointsBounds(points);
+        const centerX = (((bounds.minX + bounds.maxX) / 2) / 100) * width;
+        const centerY = (((bounds.minY + bounds.maxY) / 2) / 100) * height;
+        const rotation = (getRotationDegrees(annotation.data) * Math.PI) / 180;
 
         return (
-          <SkiaPath
+          <SkiaGroup
             key={`${annotation.id}-vector-path`}
-            path={path}
-            color={annotation.data?.color || (annotation.type === 'HIGHLIGHT' ? 'rgba(251,191,36,0.45)' : '#111827')}
-            style="stroke"
-            strokeWidth={annotation.data?.strokeWidth || (annotation.type === 'HIGHLIGHT' ? 12 : 3)}
-            strokeCap={annotation.type === 'HIGHLIGHT' ? 'butt' : 'round'}
-            strokeJoin="round"
-          />
+            transform={[
+              { translateX: centerX },
+              { translateY: centerY },
+              { rotate: rotation },
+              { translateX: -centerX },
+              { translateY: -centerY },
+            ]}
+          >
+            <SkiaPath
+              path={path}
+              color={annotation.data?.color || '#111827'}
+              style="stroke"
+              strokeWidth={getCanvasStrokeWidth(annotation.data, width, 3)}
+              strokeCap="round"
+              strokeJoin="round"
+            />
+          </SkiaGroup>
         );
       })}
       {activeTool === 'HIGHLIGHT' && drawPoints.length > 1 ? (
@@ -1865,7 +2846,7 @@ const VectorAnnotationsCanvas = memo(function VectorAnnotationsCanvas({
           path={livePath}
           color={activeColor}
           style="stroke"
-          strokeWidth={Math.max(2, activeStrokeWidth * 0.35)}
+          strokeWidth={activeStrokeWidth}
           strokeCap="round"
           strokeJoin="round"
         />
@@ -1873,6 +2854,169 @@ const VectorAnnotationsCanvas = memo(function VectorAnnotationsCanvas({
     </Canvas>
   );
 });
+
+const SignatureAnnotationsCanvas = memo(function SignatureAnnotationsCanvas({
+  annotations,
+  width,
+  height,
+  selectedAnnotationId,
+}: {
+  annotations: Annotation[];
+  width: number;
+  height: number;
+  selectedAnnotationId: string | null;
+}) {
+  const signatureAnnotations = useMemo(
+    () => annotations.filter((annotation) => annotation.type === 'SIGNATURE'),
+    [annotations]
+  );
+
+  if (signatureAnnotations.length === 0) return null;
+
+  return (
+    <Svg style={StyleSheet.absoluteFill} pointerEvents="none">
+      {signatureAnnotations.map((annotation) => {
+        if (annotation.id === selectedAnnotationId) return null;
+        const x = ((annotation.data?.x || 0) / 100) * width;
+        const y = ((annotation.data?.y || 0) / 100) * height;
+        const targetWidth = ((annotation.data?.width || 0) / 100) * width;
+        const targetHeight = ((annotation.data?.height || 0) / 100) * height;
+        const rotation = getRotationDegrees(annotation.data);
+
+        return (
+          <G
+            key={`${annotation.id}-signature-group`}
+            x={x}
+            y={y}
+            rotation={rotation}
+            originX={targetWidth / 2}
+            originY={targetHeight / 2}
+          >
+            <FillSignAnnotationGraphic annotation={annotation} width={targetWidth} height={targetHeight} />
+          </G>
+        );
+      })}
+    </Svg>
+  );
+});
+
+function FillSignAnnotationGraphic({
+  annotation,
+  width,
+  height,
+}: {
+  annotation: Annotation;
+  width: number;
+  height: number;
+}) {
+  const kind = annotation.data?.kind || annotation.data?.slotType || 'signature';
+  const color = annotation.data?.color || '#111827';
+
+  if (kind === 'signature' || kind === 'initials') {
+    if (typeof annotation.data?.imageUri === 'string' && annotation.data.imageUri) {
+      return (
+        <SvgImage
+          href={{ uri: annotation.data.imageUri }}
+          x={0}
+          y={0}
+          width={width}
+          height={height}
+          preserveAspectRatio="xMidYMid meet"
+        />
+      );
+    }
+
+    const sourceBounds = annotation.data?.sourceBounds || getSignaturePathsBounds(annotation.data?.paths || []);
+    const scaleX = width / Math.max(sourceBounds.width, 1);
+    const scaleY = height / Math.max(sourceBounds.height, 1);
+
+    return (
+      <G scaleX={scaleX} scaleY={scaleY}>
+        <G translateX={-sourceBounds.minX} translateY={-sourceBounds.minY}>
+          {(annotation.data?.paths || []).map((path: string, index: number) => (
+            <SvgPath
+              key={`${annotation.id}-graphic-path-${index}`}
+              d={path}
+              stroke={color}
+              strokeWidth={3}
+              fill="none"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          ))}
+        </G>
+      </G>
+    );
+  }
+
+  if (kind === 'cross') {
+    return (
+      <>
+        <SvgLine x1={0} y1={0} x2={width} y2={height} stroke={color} strokeWidth={3} strokeLinecap="round" />
+        <SvgLine x1={width} y1={0} x2={0} y2={height} stroke={color} strokeWidth={3} strokeLinecap="round" />
+      </>
+    );
+  }
+
+  if (kind === 'check') {
+    return (
+      <SvgPath
+        d={`M ${width * 0.08} ${height * 0.58} L ${width * 0.36} ${height * 0.88} L ${width * 0.92} ${height * 0.12}`}
+        stroke={color}
+        strokeWidth={3}
+        fill="none"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    );
+  }
+
+  if (kind === 'ellipse') {
+    return (
+      <SvgEllipse
+        cx={width / 2}
+        cy={height / 2}
+        rx={Math.max(width / 2 - 1.5, 1)}
+        ry={Math.max(height / 2 - 1.5, 1)}
+        stroke={color}
+        strokeWidth={3}
+        fill="none"
+      />
+    );
+  }
+
+  if (kind === 'rect') {
+    return (
+      <SvgRect
+        x={1.5}
+        y={1.5}
+        width={Math.max(width - 3, 1)}
+        height={Math.max(height - 3, 1)}
+        rx={2}
+        ry={2}
+        stroke={color}
+        strokeWidth={3}
+        fill="none"
+      />
+    );
+  }
+
+  if (kind === 'line') {
+    return (
+      <SvgLine
+        x1={0}
+        y1={height / 2}
+        x2={width}
+        y2={height / 2}
+        stroke={color}
+        strokeWidth={3}
+        strokeLinecap="round"
+      />
+    );
+  }
+
+  return null;
+}
 
 const CommentAnnotationsCanvas = memo(function CommentAnnotationsCanvas({
   annotations,
@@ -1980,6 +3124,42 @@ function AnnotationTouchItem({
     );
   }
 
+  if (annotation.type === 'SIGNATURE') {
+    const left = ((annotation.data?.x || 0) / 100) * width;
+    const top = ((annotation.data?.y || 0) / 100) * height;
+    const signatureWidth = ((annotation.data?.width || 0) / 100) * width;
+    const signatureHeight = ((annotation.data?.height || 0) / 100) * height;
+    const rotation = getRotationDegrees(annotation.data);
+
+    return (
+      <Pressable
+        onPress={onPress}
+        style={[
+          styles.highlightHitbox,
+          {
+            left,
+            top,
+            width: Math.max(24, signatureWidth),
+            height: Math.max(24, signatureHeight),
+            transform: [{ rotate: `${rotation}deg` }],
+          },
+        ]}
+        hitSlop={10}
+      />
+    );
+  }
+
+  if (annotation.type === 'DRAW') {
+    return (
+      <DrawAnnotationTouchItem
+        annotation={annotation}
+        width={width}
+        height={height}
+        onPress={onPress}
+      />
+    );
+  }
+
   return null;
 }
 
@@ -1999,8 +3179,9 @@ function HighlightAnnotationTouchItem({
     points,
     width,
     height,
-    annotation.data?.strokeWidth || HIGHLIGHT_DEFAULT_WIDTH
+    getCanvasStrokeWidth(annotation.data, width, HIGHLIGHT_DEFAULT_WIDTH)
   );
+  const rotation = getRotationDegrees(annotation.data);
 
   return (
     <Pressable
@@ -2012,6 +3193,45 @@ function HighlightAnnotationTouchItem({
           top: renderedBounds.top,
           width: Math.max(24, renderedBounds.width),
           height: Math.max(24, renderedBounds.height),
+          transform: [{ rotate: `${rotation}deg` }],
+        },
+      ]}
+      hitSlop={10}
+    />
+  );
+}
+
+function DrawAnnotationTouchItem({
+  annotation,
+  width,
+  height,
+  onPress,
+}: {
+  annotation: Annotation;
+  width: number;
+  height: number;
+  onPress: () => void;
+}) {
+  const points = annotation.data?.points || [];
+  const renderedBounds = getDrawScreenBounds(
+    points,
+    width,
+    height,
+    getCanvasStrokeWidth(annotation.data, width, 3)
+  );
+  const rotation = getRotationDegrees(annotation.data);
+
+  return (
+    <Pressable
+      onPress={onPress}
+      style={[
+        styles.highlightHitbox,
+        {
+          left: renderedBounds.left,
+          top: renderedBounds.top,
+          width: Math.max(24, renderedBounds.width),
+          height: Math.max(24, renderedBounds.height),
+          transform: [{ rotate: `${rotation}deg` }],
         },
       ]}
       hitSlop={10}
@@ -2038,9 +3258,11 @@ function TextAnnotationTouchItem({
   onDragEnd: (position: { x: number; y: number }) => void;
   onResize: (fontSize: number) => void;
 }) {
+  const textValue = String(annotation.data?.text || '');
   const x = ((annotation.data?.x || 0) / 100) * width;
   const y = ((annotation.data?.y || 0) / 100) * height;
   const metrics = getTextMetrics(annotation.data);
+  const rotation = getRotationDegrees(annotation.data);
   const [previewFontSize, setPreviewFontSize] = useState(annotation.data?.fontSize || metrics.fontSize);
   const previewFontSizeRef = useRef(previewFontSize);
   const dragTranslateX = useSharedValue(0);
@@ -2159,6 +3381,7 @@ function TextAnnotationTouchItem({
           top: y - previewMetrics.ascent - previewMetrics.verticalPadding,
           width: previewMetrics.width + previewMetrics.horizontalPadding * 2,
           height: previewMetrics.height + previewMetrics.verticalPadding * 2,
+          transform: [{ rotate: `${rotation}deg` }],
         },
         selected && styles.selectedHitbox,
         hitboxAnimatedStyle,
@@ -2205,10 +3428,13 @@ function SelectedTextOverlay({
   onPress,
   onDragEnd,
   onResize,
+  onRotate,
   onDecrease,
   onIncrease,
   onDelete,
   onEdit,
+  onInteractionStart,
+  onInteractionEnd,
 }: {
   annotation: Annotation;
   width: number;
@@ -2218,20 +3444,27 @@ function SelectedTextOverlay({
   onPress: () => void;
   onDragEnd: (position: { x: number; y: number }) => void;
   onResize: (fontSize: number) => void;
+  onRotate: (rotation: number) => void;
   onDecrease: () => void;
   onIncrease: () => void;
   onDelete: () => void;
   onEdit: () => void;
+  onInteractionStart: () => void;
+  onInteractionEnd: () => void;
 }) {
+  const textValue = String(annotation.data?.text || '');
   const x = ((annotation.data?.x || 0) / 100) * width;
   const y = ((annotation.data?.y || 0) / 100) * height;
   const [previewFontSize, setPreviewFontSize] = useState(annotation.data?.fontSize || activeFontSize);
+  const [previewRotation, setPreviewRotation] = useState(getRotationDegrees(annotation.data));
   const previewFontSizeRef = useRef(previewFontSize);
+  const previewRotationRef = useRef(previewRotation);
   const dragTranslateX = useSharedValue(0);
   const dragTranslateY = useSharedValue(0);
   const resizeStartFontSize = useSharedValue(annotation.data?.fontSize || activeFontSize);
   const resizeStartWidth = useSharedValue(1);
   const resizeStartHeight = useSharedValue(1);
+  const rotationStart = useSharedValue(getRotationDegrees(annotation.data));
 
   useEffect(() => {
     const nextFontSize = annotation.data?.fontSize || activeFontSize;
@@ -2243,6 +3476,15 @@ function SelectedTextOverlay({
   }, [previewFontSize]);
 
   useEffect(() => {
+    const nextRotation = getRotationDegrees(annotation.data);
+    setPreviewRotation(nextRotation);
+  }, [annotation.data]);
+
+  useEffect(() => {
+    previewRotationRef.current = previewRotation;
+  }, [previewRotation]);
+
+  useEffect(() => {
     dragTranslateX.value = 0;
     dragTranslateY.value = 0;
   }, [dragTranslateX, dragTranslateY, x, y]);
@@ -2251,16 +3493,6 @@ function SelectedTextOverlay({
     ...annotation.data,
     fontSize: previewFontSize,
   });
-  const skiaFont = useMemo(
-    () =>
-      matchFont({
-        fontFamily: getSkiaFontFamily(annotation.data?.fontFamily),
-        fontSize: previewFontSize,
-        fontStyle: 'normal',
-        fontWeight: '700',
-      }),
-    [annotation.data?.fontFamily, previewFontSize]
-  );
   const boxLeft = x - metrics.horizontalPadding;
   const boxTop = y - metrics.ascent - metrics.verticalPadding;
   const boxWidth = metrics.width + metrics.horizontalPadding * 2;
@@ -2285,6 +3517,7 @@ function SelectedTextOverlay({
     transform: [
       { translateX: dragTranslateX.value },
       { translateY: dragTranslateY.value },
+      { rotate: `${previewRotation}deg` },
     ] as const,
   }));
 
@@ -2298,8 +3531,12 @@ function SelectedTextOverlay({
   const dragGesture = useMemo(
     () =>
       Gesture.Pan()
+        .runOnJS(true)
+        .onTouchesDown(() => {
+          onInteractionStart();
+        })
         .onBegin(() => {
-          runOnJS(onPress)();
+          onPress();
         })
         .onUpdate((event) => {
           dragTranslateX.value = event.translationX;
@@ -2308,10 +3545,12 @@ function SelectedTextOverlay({
         .onEnd((event) => {
           const nextX = Math.max(0, Math.min(100, ((x + event.translationX) / Math.max(width, 1)) * 100));
           const nextY = Math.max(0, Math.min(100, ((y + event.translationY) / Math.max(height, 1)) * 100));
-          runOnJS(onDragEnd)({ x: nextX, y: nextY });
+          onDragEnd({ x: nextX, y: nextY });
         })
-        .onFinalize(() => {}),
-    [dragTranslateX, dragTranslateY, height, onDragEnd, onPress, width, x, y]
+        .onFinalize(() => {
+          onInteractionEnd();
+        }),
+    [dragTranslateX, dragTranslateY, height, onDragEnd, onInteractionEnd, onInteractionStart, onPress, width, x, y]
   );
 
   const doubleTapGesture = useMemo(
@@ -2341,6 +3580,9 @@ function SelectedTextOverlay({
     () =>
       Gesture.Pan()
         .runOnJS(true)
+        .onTouchesDown(() => {
+          onInteractionStart();
+        })
         .onBegin(() => {
           onPress();
           resizeStartFontSize.value = annotation.data?.fontSize || activeFontSize;
@@ -2360,18 +3602,48 @@ function SelectedTextOverlay({
         })
         .onEnd(() => {
           onResize(previewFontSizeRef.current);
+        })
+        .onFinalize(() => {
+          onInteractionEnd();
         }),
     [
       activeFontSize,
       annotation.data?.fontSize,
       boxHeight,
       boxWidth,
+      onInteractionEnd,
+      onInteractionStart,
       onPress,
       onResize,
       resizeStartFontSize,
       resizeStartHeight,
       resizeStartWidth,
     ]
+  );
+
+  const rotateGesture = useMemo(
+    () =>
+      Gesture.Pan()
+        .runOnJS(true)
+        .onTouchesDown(() => {
+          onInteractionStart();
+        })
+        .onBegin(() => {
+          onPress();
+          rotationStart.value = getRotationDegrees(annotation.data);
+        })
+        .onUpdate((event) => {
+          const nextRotation = getRotationFromGesture(rotationStart.value, event.translationX, event.translationY);
+          previewRotationRef.current = nextRotation;
+          setPreviewRotation(nextRotation);
+        })
+        .onEnd(() => {
+          onRotate(previewRotationRef.current);
+        })
+        .onFinalize(() => {
+          onInteractionEnd();
+        }),
+    [annotation.data, onInteractionEnd, onInteractionStart, onPress, onRotate, rotationStart]
   );
 
   return (
@@ -2427,16 +3699,6 @@ function SelectedTextOverlay({
         <Canvas style={StyleSheet.absoluteFill}>
           <SkiaRect x={0} y={0} width={boxWidth} height={boxHeight} color="rgba(96,165,250,0.18)" style="fill" />
           <SkiaRect x={0} y={0} width={boxWidth} height={boxHeight} color="#60a5fa" style="stroke" strokeWidth={1.5} />
-          {metrics.lines.map((line, index) => (
-            <SkiaText
-              key={`${annotation.id}-skia-line-${index}`}
-              x={metrics.horizontalPadding}
-              y={metrics.ascent + metrics.verticalPadding + index * metrics.lineHeight}
-              text={line || ' '}
-              font={skiaFont}
-              color={annotation.data?.color || '#111827'}
-            />
-          ))}
           <Circle cx={-canvasHandleOffset} cy={-canvasHandleOffset} r={canvasHandleRadius} color="#ffffff" />
           <Circle cx={-canvasHandleOffset} cy={-canvasHandleOffset} r={canvasHandleRadius} color="#60a5fa" style="stroke" strokeWidth={canvasHandleStrokeWidth} />
           <Circle cx={boxWidth + canvasHandleOffset} cy={-canvasHandleOffset} r={canvasHandleRadius} color="#ffffff" />
@@ -2446,6 +3708,19 @@ function SelectedTextOverlay({
           <Circle cx={boxWidth + canvasHandleOffset} cy={boxHeight + canvasHandleOffset} r={canvasHandleRadius} color="#ffffff" />
           <Circle cx={boxWidth + canvasHandleOffset} cy={boxHeight + canvasHandleOffset} r={canvasHandleRadius} color="#60a5fa" style="stroke" strokeWidth={canvasHandleStrokeWidth} />
         </Canvas>
+        <View pointerEvents="none" style={styles.selectedTextContent}>
+          <Text
+            style={{
+              color: annotation.data?.color || '#111827',
+              fontFamily: getRenderableFontFamily(textValue, annotation.data?.fontFamily),
+              fontSize: previewFontSize,
+              lineHeight: metrics.lineHeight,
+              ...getTextDirectionStyle(textValue),
+            }}
+          >
+            {textValue}
+          </Text>
+        </View>
         <GestureDetector gesture={Gesture.Exclusive(doubleTapGesture, longPressGesture, dragGesture)}>
           <Animated.View style={styles.selectedTextDragSurface} />
         </GestureDetector>
@@ -2466,6 +3741,23 @@ function SelectedTextOverlay({
             <Text style={[styles.resizeHandleText, { fontSize: resizeHandleFontSize }]}>↘</Text>
           </Animated.View>
         </GestureDetector>
+        <GestureDetector gesture={rotateGesture}>
+          <Animated.View
+            style={[
+              styles.rotationHandle,
+              {
+                left: resizeHandleOffset,
+                bottom: resizeHandleOffset,
+                width: resizeHandleSize,
+                height: resizeHandleSize,
+                borderRadius: resizeHandleRadius,
+                borderWidth: resizeHandleBorderWidth,
+              },
+            ]}
+          >
+            <Text style={[styles.rotationHandleText, { fontSize: resizeHandleFontSize - 1 }]}>↺</Text>
+          </Animated.View>
+        </GestureDetector>
       </Animated.View>
     </>
   );
@@ -2479,6 +3771,7 @@ function SelectedHighlightOverlay({
   onPress,
   onDragEnd,
   onResize,
+  onRotate,
   onDelete,
 }: {
   annotation: Annotation;
@@ -2488,15 +3781,18 @@ function SelectedHighlightOverlay({
   onPress: () => void;
   onDragEnd: (points: Array<{ x: number; y: number }>) => void;
   onResize: (nextValue: { points: Array<{ x: number; y: number }>; strokeWidth: number }) => void;
+  onRotate: (rotation: number) => void;
   onDelete: () => void;
 }) {
   const points = annotation.data?.points || [];
   const bounds = getPointsBounds(points);
-  const strokeWidth = annotation.data?.strokeWidth || HIGHLIGHT_DEFAULT_WIDTH;
+  const strokeWidth = getCanvasStrokeWidth(annotation.data, width, HIGHLIGHT_DEFAULT_WIDTH);
   const [previewPoints, setPreviewPoints] = useState(points);
   const [previewStrokeWidth, setPreviewStrokeWidth] = useState(strokeWidth);
+  const [previewRotation, setPreviewRotation] = useState(getRotationDegrees(annotation.data));
   const previewPointsRef = useRef(previewPoints);
   const previewStrokeWidthRef = useRef(previewStrokeWidth);
+  const previewRotationRef = useRef(previewRotation);
   const uiScale = 1 / Math.max(zoom, 0.01);
   const resizeHandleSize = 24 * uiScale;
   const resizeHandleOffset = -18 * uiScale;
@@ -2507,6 +3803,7 @@ function SelectedHighlightOverlay({
   const pillGap = 16 * uiScale;
   const dragTranslateX = useSharedValue(0);
   const dragTranslateY = useSharedValue(0);
+  const rotationStart = useSharedValue(getRotationDegrees(annotation.data));
   const resizeStartWidth = useSharedValue(bounds.width);
   const resizeStartStrokeWidth = useSharedValue(strokeWidth);
 
@@ -2527,6 +3824,15 @@ function SelectedHighlightOverlay({
   }, [previewStrokeWidth]);
 
   useEffect(() => {
+    const nextRotation = getRotationDegrees(annotation.data);
+    setPreviewRotation(nextRotation);
+  }, [annotation.data]);
+
+  useEffect(() => {
+    previewRotationRef.current = previewRotation;
+  }, [previewRotation]);
+
+  useEffect(() => {
     dragTranslateX.value = 0;
     dragTranslateY.value = 0;
   }, [bounds.minX, bounds.minY, dragTranslateX, dragTranslateY]);
@@ -2541,6 +3847,7 @@ function SelectedHighlightOverlay({
     transform: [
       { translateX: dragTranslateX.value },
       { translateY: dragTranslateY.value },
+      { rotate: `${previewRotation}deg` },
     ] as const,
   }));
   const pillAnimatedStyle = useAnimatedStyle(() => ({
@@ -2602,7 +3909,7 @@ function SelectedHighlightOverlay({
         .onEnd(() => {
           onResize({
             points: previewPointsRef.current,
-            strokeWidth: previewStrokeWidthRef.current,
+            strokeWidth: toRelativeStrokeWidth(previewStrokeWidthRef.current, width),
           });
         }),
     [
@@ -2617,6 +3924,25 @@ function SelectedHighlightOverlay({
       strokeWidth,
       width,
     ]
+  );
+
+  const rotateGesture = useMemo(
+    () =>
+      Gesture.Pan()
+        .runOnJS(true)
+        .onBegin(() => {
+          onPress();
+          rotationStart.value = getRotationDegrees(annotation.data);
+        })
+        .onUpdate((event) => {
+          const nextRotation = getRotationFromGesture(rotationStart.value, event.translationX, event.translationY);
+          previewRotationRef.current = nextRotation;
+          setPreviewRotation(nextRotation);
+        })
+        .onEnd(() => {
+          onRotate(previewRotationRef.current);
+        }),
+    [annotation.data, onPress, onRotate, rotationStart]
   );
 
   return (
@@ -2702,6 +4028,566 @@ function SelectedHighlightOverlay({
             <Text style={[styles.resizeHandleText, { fontSize: resizeHandleFontSize }]}>↘</Text>
           </Animated.View>
         </GestureDetector>
+        <GestureDetector gesture={rotateGesture}>
+          <Animated.View
+            style={[
+              styles.rotationHandle,
+              {
+                left: resizeHandleOffset,
+                bottom: resizeHandleOffset,
+                width: resizeHandleSize,
+                height: resizeHandleSize,
+                borderRadius: resizeHandleRadius,
+                borderWidth: resizeHandleBorderWidth,
+              },
+            ]}
+          >
+            <Text style={[styles.rotationHandleText, { fontSize: resizeHandleFontSize - 1 }]}>↺</Text>
+          </Animated.View>
+        </GestureDetector>
+      </Animated.View>
+    </>
+  );
+}
+
+function SelectedDrawOverlay({
+  annotation,
+  width,
+  height,
+  zoom,
+  onPress,
+  onDragEnd,
+  onResize,
+  onRotate,
+  onDelete,
+}: {
+  annotation: Annotation;
+  width: number;
+  height: number;
+  zoom: number;
+  onPress: () => void;
+  onDragEnd: (points: Array<{ x: number; y: number }>) => void;
+  onResize: (nextValue: { points: Array<{ x: number; y: number }>; strokeWidth: number }) => void;
+  onRotate: (rotation: number) => void;
+  onDelete: () => void;
+}) {
+  const points = annotation.data?.points || [];
+  const bounds = getPointsBounds(points);
+  const strokeWidth = getCanvasStrokeWidth(annotation.data, width, 3);
+  const [previewPoints, setPreviewPoints] = useState(points);
+  const [previewStrokeWidth, setPreviewStrokeWidth] = useState(strokeWidth);
+  const [previewRotation, setPreviewRotation] = useState(getRotationDegrees(annotation.data));
+  const previewPointsRef = useRef(previewPoints);
+  const previewStrokeWidthRef = useRef(previewStrokeWidth);
+  const previewRotationRef = useRef(previewRotation);
+  const uiScale = 1 / Math.max(zoom, 0.01);
+  const resizeHandleSize = 24 * uiScale;
+  const resizeHandleOffset = -18 * uiScale;
+  const resizeHandleRadius = 12 * uiScale;
+  const resizeHandleBorderWidth = 1 * uiScale;
+  const resizeHandleFontSize = 12 * uiScale;
+  const pillSize = 44 * uiScale;
+  const pillGap = 16 * uiScale;
+  const dragTranslateX = useSharedValue(0);
+  const dragTranslateY = useSharedValue(0);
+  const rotationStart = useSharedValue(getRotationDegrees(annotation.data));
+  const resizeStartWidth = useSharedValue(Math.max(bounds.width, 0.5));
+  const resizeStartHeight = useSharedValue(Math.max(bounds.height, 0.5));
+  const resizeStartStrokeWidth = useSharedValue(strokeWidth);
+
+  useEffect(() => {
+    setPreviewPoints(points);
+  }, [annotation.data?.points, points]);
+
+  useEffect(() => {
+    setPreviewStrokeWidth(strokeWidth);
+  }, [strokeWidth]);
+
+  useEffect(() => {
+    previewPointsRef.current = previewPoints;
+  }, [previewPoints]);
+
+  useEffect(() => {
+    previewStrokeWidthRef.current = previewStrokeWidth;
+  }, [previewStrokeWidth]);
+
+  useEffect(() => {
+    const nextRotation = getRotationDegrees(annotation.data);
+    setPreviewRotation(nextRotation);
+  }, [annotation.data]);
+
+  useEffect(() => {
+    previewRotationRef.current = previewRotation;
+  }, [previewRotation]);
+
+  useEffect(() => {
+    dragTranslateX.value = 0;
+    dragTranslateY.value = 0;
+  }, [bounds.minX, bounds.minY, dragTranslateX, dragTranslateY]);
+
+  const renderedBounds = getDrawScreenBounds(previewPoints, width, height, previewStrokeWidth);
+  const overlayAnimatedStyle = useAnimatedStyle(() => ({
+    transform: [
+      { translateX: dragTranslateX.value },
+      { translateY: dragTranslateY.value },
+      { rotate: `${previewRotation}deg` },
+    ] as const,
+  }));
+  const pillAnimatedStyle = useAnimatedStyle(() => ({
+    transform: [
+      { translateX: dragTranslateX.value },
+      { translateY: dragTranslateY.value },
+    ] as const,
+  }));
+  const placePillAbove = renderedBounds.top - pillSize - pillGap >= 12 * uiScale;
+  const pillTop = placePillAbove ? renderedBounds.top - pillSize - pillGap : renderedBounds.top + renderedBounds.height + pillGap;
+  const pillLeft = Math.max(
+    12 * uiScale,
+    Math.min(
+      renderedBounds.left + renderedBounds.width / 2 - pillSize / 2,
+      width - pillSize - 12 * uiScale
+    )
+  );
+  const localPath = useMemo(
+    () =>
+      previewPoints.length > 1
+        ? Skia.Path.MakeFromSVGString(
+            toSvgPath(
+              previewPoints,
+              width,
+              height,
+              renderedBounds.left + renderedBounds.strokePadding,
+              renderedBounds.top + renderedBounds.strokePadding
+            )
+          )
+        : null,
+    [height, previewPoints, renderedBounds.left, renderedBounds.strokePadding, renderedBounds.top, width]
+  );
+
+  const dragGesture = useMemo(
+    () =>
+      Gesture.Pan()
+        .runOnJS(true)
+        .onBegin(() => {
+          onPress();
+        })
+        .onUpdate((event) => {
+          dragTranslateX.value = event.translationX;
+          dragTranslateY.value = event.translationY;
+        })
+        .onEnd((event) => {
+          const deltaX = (event.translationX / Math.max(width, 1)) * 100;
+          const deltaY = (event.translationY / Math.max(height, 1)) * 100;
+          onDragEnd(translatePoints(points, deltaX, deltaY));
+        }),
+    [dragTranslateX, dragTranslateY, height, onDragEnd, onPress, points, width]
+  );
+
+  const resizeGesture = useMemo(
+    () =>
+      Gesture.Pan()
+        .runOnJS(true)
+        .onBegin(() => {
+          onPress();
+          resizeStartWidth.value = Math.max(bounds.width, 0.5);
+          resizeStartHeight.value = Math.max(bounds.height, 0.5);
+          resizeStartStrokeWidth.value = strokeWidth;
+        })
+        .onUpdate((event) => {
+          const nextWidth = Math.max(1, resizeStartWidth.value + (event.translationX / Math.max(width, 1)) * 100);
+          const nextHeight = Math.max(1, resizeStartHeight.value + (event.translationY / Math.max(height, 1)) * 100);
+          const widthScale = nextWidth / Math.max(bounds.width, 0.5);
+          const heightScale = nextHeight / Math.max(bounds.height, 0.5);
+          const nextPoints = scalePointsFromBounds(points, nextWidth, nextHeight);
+          const nextStrokeWidth = Math.max(1, resizeStartStrokeWidth.value * Math.max(widthScale, heightScale));
+          previewPointsRef.current = nextPoints;
+          previewStrokeWidthRef.current = nextStrokeWidth;
+          setPreviewPoints(nextPoints);
+          setPreviewStrokeWidth(nextStrokeWidth);
+        })
+        .onEnd(() => {
+          onResize({
+            points: previewPointsRef.current,
+            strokeWidth: toRelativeStrokeWidth(previewStrokeWidthRef.current, width),
+          });
+        }),
+    [
+      bounds.height,
+      bounds.width,
+      height,
+      onPress,
+      onResize,
+      points,
+      resizeStartHeight,
+      resizeStartStrokeWidth,
+      resizeStartWidth,
+      strokeWidth,
+      width,
+    ]
+  );
+
+  const rotateGesture = useMemo(
+    () =>
+      Gesture.Pan()
+        .runOnJS(true)
+        .onBegin(() => {
+          onPress();
+          rotationStart.value = getRotationDegrees(annotation.data);
+        })
+        .onUpdate((event) => {
+          const nextRotation = getRotationFromGesture(rotationStart.value, event.translationX, event.translationY);
+          previewRotationRef.current = nextRotation;
+          setPreviewRotation(nextRotation);
+        })
+        .onEnd(() => {
+          onRotate(previewRotationRef.current);
+        }),
+    [annotation.data, onPress, onRotate, rotationStart]
+  );
+
+  return (
+    <>
+      <Animated.View
+        style={[
+          styles.selectionActionPill,
+          {
+            left: pillLeft,
+            top: pillTop,
+            width: pillSize,
+            height: pillSize,
+            paddingVertical: 6 * uiScale,
+            borderWidth: 1 * uiScale,
+          },
+          pillAnimatedStyle,
+        ]}
+      >
+        <TouchableOpacity
+          style={[
+            styles.selectionActionBtn,
+            styles.selectionDeleteBtn,
+            {
+              paddingHorizontal: 6 * uiScale,
+              paddingVertical: 8 * uiScale,
+              minWidth: 38 * uiScale,
+            },
+          ]}
+          onPress={onDelete}
+        >
+          <Trash2 size={16 * uiScale} color="#fff" />
+        </TouchableOpacity>
+      </Animated.View>
+
+      <Animated.View
+        style={[
+          styles.selectedHighlightOverlay,
+          {
+            left: renderedBounds.left,
+            top: renderedBounds.top,
+            width: renderedBounds.width,
+            height: renderedBounds.height,
+          },
+          overlayAnimatedStyle,
+        ]}
+      >
+        <Canvas style={StyleSheet.absoluteFill}>
+          {localPath && (
+            <SkiaPath
+              path={localPath}
+              color={annotation.data?.color || '#111827'}
+              style="stroke"
+              strokeWidth={previewStrokeWidth}
+              strokeCap="round"
+              strokeJoin="round"
+            />
+          )}
+          <SkiaRect
+            x={0.75}
+            y={0.75}
+            width={Math.max(0, renderedBounds.width - 1.5)}
+            height={Math.max(0, renderedBounds.height - 1.5)}
+            color="#60a5fa"
+            style="stroke"
+            strokeWidth={1.5}
+          />
+        </Canvas>
+        <GestureDetector gesture={dragGesture}>
+          <Animated.View style={styles.selectedHighlightDragSurface} />
+        </GestureDetector>
+        <GestureDetector gesture={resizeGesture}>
+          <Animated.View
+            style={[
+              styles.resizeHandle,
+              {
+                right: resizeHandleOffset,
+                bottom: resizeHandleOffset,
+                width: resizeHandleSize,
+                height: resizeHandleSize,
+                borderRadius: resizeHandleRadius,
+                borderWidth: resizeHandleBorderWidth,
+              },
+            ]}
+          >
+            <Text style={[styles.resizeHandleText, { fontSize: resizeHandleFontSize }]}>↘</Text>
+          </Animated.View>
+        </GestureDetector>
+        <GestureDetector gesture={rotateGesture}>
+          <Animated.View
+            style={[
+              styles.rotationHandle,
+              {
+                left: resizeHandleOffset,
+                bottom: resizeHandleOffset,
+                width: resizeHandleSize,
+                height: resizeHandleSize,
+                borderRadius: resizeHandleRadius,
+                borderWidth: resizeHandleBorderWidth,
+              },
+            ]}
+          >
+            <Text style={[styles.rotationHandleText, { fontSize: resizeHandleFontSize - 1 }]}>↺</Text>
+          </Animated.View>
+        </GestureDetector>
+      </Animated.View>
+    </>
+  );
+}
+
+function SelectedFillSignOverlay({
+  annotation,
+  width,
+  height,
+  zoom,
+  onPress,
+  onDragEnd,
+  onResize,
+  onRotate,
+  onDelete,
+}: {
+  annotation: Annotation;
+  width: number;
+  height: number;
+  zoom: number;
+  onPress: () => void;
+  onDragEnd: (position: { x: number; y: number }) => void;
+  onResize: (size: { width: number; height: number }) => void;
+  onRotate: (rotation: number) => void;
+  onDelete: () => void;
+}) {
+  const x = ((annotation.data?.x || 0) / 100) * width;
+  const y = ((annotation.data?.y || 0) / 100) * height;
+  const boxWidth = ((annotation.data?.width || 0) / 100) * width;
+  const boxHeight = ((annotation.data?.height || 0) / 100) * height;
+  const uiScale = 1 / Math.max(zoom, 0.01);
+  const resizeHandleSize = 24 * uiScale;
+  const resizeHandleOffset = -18 * uiScale;
+  const resizeHandleRadius = 12 * uiScale;
+  const resizeHandleBorderWidth = 1 * uiScale;
+  const resizeHandleFontSize = 12 * uiScale;
+  const pillSize = 44 * uiScale;
+  const pillGap = 16 * uiScale;
+  const dragTranslateX = useSharedValue(0);
+  const dragTranslateY = useSharedValue(0);
+  const resizeStartWidth = useSharedValue(boxWidth);
+  const resizeStartHeight = useSharedValue(boxHeight);
+  const previewSizeRef = useRef({ width: boxWidth, height: boxHeight });
+  const [previewSize, setPreviewSize] = useState({ width: boxWidth, height: boxHeight });
+  const [previewRotation, setPreviewRotation] = useState(getRotationDegrees(annotation.data));
+  const previewRotationRef = useRef(previewRotation);
+  const rotationStart = useSharedValue(getRotationDegrees(annotation.data));
+
+  useEffect(() => {
+    const nextSize = { width: boxWidth, height: boxHeight };
+    setPreviewSize(nextSize);
+    previewSizeRef.current = nextSize;
+  }, [boxHeight, boxWidth]);
+
+  useEffect(() => {
+    dragTranslateX.value = 0;
+    dragTranslateY.value = 0;
+  }, [dragTranslateX, dragTranslateY, x, y]);
+
+  useEffect(() => {
+    const nextRotation = getRotationDegrees(annotation.data);
+    setPreviewRotation(nextRotation);
+  }, [annotation.data]);
+
+  useEffect(() => {
+    previewRotationRef.current = previewRotation;
+  }, [previewRotation]);
+
+  const overlayAnimatedStyle = useAnimatedStyle(() => ({
+    transform: [
+      { translateX: dragTranslateX.value },
+      { translateY: dragTranslateY.value },
+      { rotate: `${previewRotation}deg` },
+    ] as const,
+  }));
+  const pillAnimatedStyle = useAnimatedStyle(() => ({
+    transform: [
+      { translateX: dragTranslateX.value },
+      { translateY: dragTranslateY.value },
+    ] as const,
+  }));
+  const placePillAbove = y - pillSize - pillGap >= 12 * uiScale;
+  const pillTop = placePillAbove ? y - pillSize - pillGap : y + previewSize.height + pillGap;
+  const pillLeft = Math.max(12 * uiScale, Math.min(x + previewSize.width / 2 - pillSize / 2, width - pillSize - 12 * uiScale));
+
+  const dragGesture = useMemo(
+    () =>
+      Gesture.Pan()
+        .runOnJS(true)
+        .onBegin(() => {
+          onPress();
+        })
+        .onUpdate((event) => {
+          dragTranslateX.value = event.translationX;
+          dragTranslateY.value = event.translationY;
+        })
+        .onEnd((event) => {
+          const nextX = Math.max(0, Math.min(100 - (annotation.data?.width || 0), ((x + event.translationX) / Math.max(width, 1)) * 100));
+          const nextY = Math.max(0, Math.min(100 - (annotation.data?.height || 0), ((y + event.translationY) / Math.max(height, 1)) * 100));
+          onDragEnd({ x: nextX, y: nextY });
+        }),
+    [annotation.data, dragTranslateX, dragTranslateY, height, onDragEnd, onPress, width, x, y]
+  );
+
+  const resizeGesture = useMemo(
+    () =>
+      Gesture.Pan()
+        .runOnJS(true)
+        .onBegin(() => {
+          onPress();
+          resizeStartWidth.value = boxWidth;
+          resizeStartHeight.value = boxHeight;
+        })
+        .onUpdate((event) => {
+          const nextWidth = Math.max(18, resizeStartWidth.value + event.translationX);
+          const nextHeight = Math.max(18, resizeStartHeight.value + event.translationY);
+          const nextSize = { width: nextWidth, height: nextHeight };
+          previewSizeRef.current = nextSize;
+          setPreviewSize(nextSize);
+        })
+        .onEnd(() => {
+          onResize({
+            width: (previewSizeRef.current.width / Math.max(width, 1)) * 100,
+            height: (previewSizeRef.current.height / Math.max(height, 1)) * 100,
+          });
+        }),
+    [boxHeight, boxWidth, height, onPress, onResize, resizeStartHeight, resizeStartWidth, width]
+  );
+
+  const rotateGesture = useMemo(
+    () =>
+      Gesture.Pan()
+        .runOnJS(true)
+        .onBegin(() => {
+          onPress();
+          rotationStart.value = getRotationDegrees(annotation.data);
+        })
+        .onUpdate((event) => {
+          const nextRotation = getRotationFromGesture(rotationStart.value, event.translationX, event.translationY);
+          previewRotationRef.current = nextRotation;
+          setPreviewRotation(nextRotation);
+        })
+        .onEnd(() => {
+          onRotate(previewRotationRef.current);
+        }),
+    [annotation.data, onPress, onRotate, rotationStart]
+  );
+
+  return (
+    <>
+      <Animated.View
+        style={[
+          styles.selectionActionPill,
+          {
+            left: pillLeft,
+            top: pillTop,
+            width: pillSize,
+            height: pillSize,
+            paddingVertical: 6 * uiScale,
+            borderWidth: 1 * uiScale,
+          },
+          pillAnimatedStyle,
+        ]}
+      >
+        <TouchableOpacity
+          style={[
+            styles.selectionActionBtn,
+            styles.selectionDeleteBtn,
+            {
+              paddingHorizontal: 6 * uiScale,
+              paddingVertical: 8 * uiScale,
+              minWidth: 38 * uiScale,
+            },
+          ]}
+          onPress={onDelete}
+        >
+          <Trash2 size={16 * uiScale} color="#fff" />
+        </TouchableOpacity>
+      </Animated.View>
+
+      <Animated.View
+        style={[
+          styles.selectedHighlightOverlay,
+          {
+            left: x,
+            top: y,
+            width: previewSize.width,
+            height: previewSize.height,
+          },
+          overlayAnimatedStyle,
+        ]}
+      >
+        <Svg style={StyleSheet.absoluteFill}>
+          <FillSignAnnotationGraphic annotation={annotation} width={previewSize.width} height={previewSize.height} />
+          <SvgRect
+            x={0.75}
+            y={0.75}
+            width={Math.max(previewSize.width - 1.5, 1)}
+            height={Math.max(previewSize.height - 1.5, 1)}
+            stroke="#60a5fa"
+            strokeWidth={1.5}
+            fill="rgba(96,165,250,0.12)"
+          />
+        </Svg>
+        <GestureDetector gesture={dragGesture}>
+          <Animated.View style={styles.selectedHighlightDragSurface} />
+        </GestureDetector>
+        <GestureDetector gesture={resizeGesture}>
+          <Animated.View
+            style={[
+              styles.resizeHandle,
+              {
+                right: resizeHandleOffset,
+                bottom: resizeHandleOffset,
+                width: resizeHandleSize,
+                height: resizeHandleSize,
+                borderRadius: resizeHandleRadius,
+                borderWidth: resizeHandleBorderWidth,
+              },
+            ]}
+          >
+            <Text style={[styles.resizeHandleText, { fontSize: resizeHandleFontSize }]}>↘</Text>
+          </Animated.View>
+        </GestureDetector>
+        <GestureDetector gesture={rotateGesture}>
+          <Animated.View
+            style={[
+              styles.rotationHandle,
+              {
+                left: resizeHandleOffset,
+                bottom: resizeHandleOffset,
+                width: resizeHandleSize,
+                height: resizeHandleSize,
+                borderRadius: resizeHandleRadius,
+                borderWidth: resizeHandleBorderWidth,
+              },
+            ]}
+          >
+            <Text style={[styles.rotationHandleText, { fontSize: resizeHandleFontSize - 1 }]}>↺</Text>
+          </Animated.View>
+        </GestureDetector>
       </Animated.View>
     </>
   );
@@ -2710,7 +4596,7 @@ function SelectedHighlightOverlay({
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#0a0a0a',
+    backgroundColor: theme.colors.bg,
   },
   header: {
     flexDirection: 'row',
@@ -2730,15 +4616,13 @@ const styles = StyleSheet.create({
   backButton: {
     width: 40,
     height: 40,
-    backgroundColor: 'rgba(255,255,255,0.05)',
-    borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
   },
   title: {
-    color: '#fff',
+    color: theme.colors.text,
     fontSize: 16,
-    fontWeight: 'bold',
+    fontWeight: '700',
     flexShrink: 1,
     maxWidth: width * 0.6,
   },
@@ -2750,8 +4634,6 @@ const styles = StyleSheet.create({
   actionBtn: {
     width: 40,
     height: 40,
-    backgroundColor: 'rgba(255,255,255,0.05)',
-    borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -2775,7 +4657,7 @@ const styles = StyleSheet.create({
     width: 32,
     height: 32,
     borderRadius: 10,
-    backgroundColor: 'rgba(255,255,255,0.08)',
+    backgroundColor: theme.colors.surfaceSoft,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -2792,12 +4674,12 @@ const styles = StyleSheet.create({
     top: 6,
     height: 8,
     borderRadius: 999,
-    backgroundColor: '#ec6400',
+    backgroundColor: theme.colors.accentStrong,
   },
   zoomLabel: {
     minWidth: 52,
     textAlign: 'right',
-    color: '#fff',
+    color: theme.colors.text,
     fontSize: 12,
     fontWeight: '700',
   },
@@ -2805,21 +4687,28 @@ const styles = StyleSheet.create({
     marginHorizontal: 20,
     marginBottom: 12,
     padding: 12,
-    borderRadius: 16,
-    backgroundColor: '#171717',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.08)',
     gap: 10,
   },
-  contextBarBottom: {
+  contextBottomWrap: {
     marginHorizontal: 20,
     marginBottom: 24,
+  },
+  contextBarBottom: {
     padding: 12,
-    borderRadius: 16,
-    backgroundColor: '#171717',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.08)',
     gap: 10,
+    backgroundColor: theme.colors.surface,
+    marginHorizontal: 12,
+    marginBottom: 12,
+    borderRadius: 18,
+    ...(Platform.OS === 'web'
+      ? { boxShadow: `6px 6px 12px ${theme.neu.colors.darkShadow}, -6px -6px 12px ${theme.neu.colors.lightShadow}` } as any
+      : {
+          shadowColor: '#000',
+          shadowOffset: { width: 5, height: 5 },
+          shadowOpacity: 0.45,
+          shadowRadius: 10,
+          elevation: 8,
+        }),
   },
   contextHeader: {
     flexDirection: 'row',
@@ -2828,7 +4717,7 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   contextTitle: {
-    color: '#fff',
+    color: theme.colors.text,
     fontSize: 13,
     fontWeight: '700',
   },
@@ -2839,10 +4728,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 8,
     borderRadius: 999,
-    backgroundColor: '#fff',
+    backgroundColor: theme.colors.accentStrong,
   },
   doneBtnText: {
-    color: '#000',
+    color: theme.colors.white,
     fontSize: 12,
     fontWeight: '700',
   },
@@ -2855,6 +4744,80 @@ const styles = StyleSheet.create({
   swatchRow: {
     gap: 10,
     paddingRight: 20,
+  },
+  fillSignActionRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 6,
+  },
+  fillSignActionBtn: {
+    width: 42,
+    height: 42,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'transparent',
+  },
+  fillSignActionBtnActive: {
+    backgroundColor: theme.colors.infoSoft,
+  },
+  signatureTray: {
+    gap: 14,
+  },
+  signatureTabRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  signatureTab: {
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    backgroundColor: theme.colors.surfaceMuted,
+  },
+  signatureTabActive: {
+    borderColor: theme.colors.info,
+    backgroundColor: theme.colors.infoSoft,
+  },
+  signatureTabText: {
+    color: theme.colors.textMuted,
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  signatureTabTextActive: {
+    color: theme.colors.text,
+  },
+  signatureTabEditBtn: {
+    marginLeft: 'auto',
+    width: 34,
+    height: 34,
+    borderRadius: 999,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: theme.colors.accentStrong,
+  },
+  signatureTrayEmpty: {
+    color: theme.colors.textMuted,
+    fontSize: 14,
+    lineHeight: 20,
+  },
+  signatureTrayCard: {
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: theme.colors.borderStrong,
+    backgroundColor: theme.colors.page,
+    padding: 10,
+  },
+  signatureTrayPreview: {
+    height: 46,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: 'rgba(17,17,17,0.08)',
+    backgroundColor: theme.colors.page,
+    overflow: 'hidden',
   },
   fontRow: {
     gap: 10,
@@ -2886,21 +4849,21 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     paddingVertical: 10,
     borderRadius: 999,
-    backgroundColor: 'rgba(255,255,255,0.06)',
+    backgroundColor: theme.colors.surfaceMuted,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.08)',
+    borderColor: theme.colors.border,
   },
   fontChipActive: {
-    backgroundColor: '#fff',
-    borderColor: '#fff',
+    backgroundColor: theme.colors.accentStrong,
+    borderColor: theme.colors.accentStrong,
   },
   fontChipText: {
-    color: 'rgba(255,255,255,0.75)',
+    color: theme.colors.textMuted,
     fontSize: 12,
     fontWeight: '600',
   },
   fontChipTextActive: {
-    color: '#000',
+    color: theme.colors.white,
   },
   sliderBlock: {
     gap: 10,
@@ -2911,12 +4874,12 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
   },
   sliderLabel: {
-    color: '#fff',
+    color: theme.colors.text,
     fontSize: 12,
     fontWeight: '700',
   },
   sliderValue: {
-    color: 'rgba(255,255,255,0.75)',
+    color: theme.colors.textMuted,
     fontSize: 12,
     fontWeight: '700',
   },
@@ -2931,7 +4894,7 @@ const styles = StyleSheet.create({
     top: 6,
     height: 8,
     borderRadius: 999,
-    backgroundColor: '#ec6400',
+    backgroundColor: theme.colors.accentStrong,
   },
   sliderThumb: {
     position: 'absolute',
@@ -2940,18 +4903,18 @@ const styles = StyleSheet.create({
     width: 20,
     height: 20,
     borderRadius: 10,
-    backgroundColor: '#fff',
+    backgroundColor: theme.colors.white,
     borderWidth: 2,
-    borderColor: '#ec6400',
+    borderColor: theme.colors.accentStrong,
   },
   miniBtn: {
     paddingHorizontal: 10,
     paddingVertical: 8,
     borderRadius: 10,
-    backgroundColor: 'rgba(255,255,255,0.08)',
+    backgroundColor: theme.colors.surfaceSoft,
   },
   miniBtnText: {
-    color: '#fff',
+    color: theme.colors.text,
     fontSize: 12,
     fontWeight: '700',
   },
@@ -2986,7 +4949,7 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
   },
   pdfPage: {
-    backgroundColor: '#111',
+    backgroundColor: theme.colors.page,
     overflow: 'hidden',
   },
   zoomedPageFrame: {
@@ -3005,7 +4968,7 @@ const styles = StyleSheet.create({
   pdfViewer: {
     width: '100%',
     height: '100%',
-    backgroundColor: '#111',
+    backgroundColor: theme.colors.page,
   },
   inlineTextEditor: {
     position: 'absolute',
@@ -3016,8 +4979,12 @@ const styles = StyleSheet.create({
   inlineTextInput: {
     paddingVertical: 4,
     paddingHorizontal: 0,
-    fontWeight: '700',
     minWidth: 160,
+  },
+  annotationTextContent: {
+    position: 'absolute',
+    alignItems: 'flex-start',
+    justifyContent: 'flex-start',
   },
   textHitbox: {
     position: 'absolute',
@@ -3058,6 +5025,11 @@ const styles = StyleSheet.create({
   selectedTextOverlay: {
     position: 'absolute',
   },
+  selectedTextContent: {
+    ...StyleSheet.absoluteFillObject,
+    justifyContent: 'flex-start',
+    alignItems: 'flex-start',
+  },
   highlightHitbox: {
     position: 'absolute',
     backgroundColor: 'transparent',
@@ -3080,7 +5052,7 @@ const styles = StyleSheet.create({
     width: 24,
     height: 24,
     borderRadius: 12,
-    backgroundColor: '#fff',
+    backgroundColor: theme.colors.white,
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1,
@@ -3092,18 +5064,31 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '700',
   },
+  rotationHandle: {
+    position: 'absolute',
+    backgroundColor: theme.colors.accentStrong,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderColor: theme.colors.white,
+    zIndex: 3,
+  },
+  rotationHandleText: {
+    color: theme.colors.white,
+    fontSize: 12,
+    fontWeight: '700',
+  },
   selectionActionPill: {
     position: 'absolute',
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 0,
-    backgroundColor: '#232323',
+    backgroundColor: theme.colors.bgAlt,
     borderRadius: 999,
     paddingHorizontal: 0,
     paddingVertical: 6,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.08)',
+    borderColor: theme.colors.border,
     zIndex: 16,
   },
   selectionActionBtn: {
@@ -3112,7 +5097,7 @@ const styles = StyleSheet.create({
     borderRadius: 999,
   },
   selectionActionText: {
-    color: '#fff',
+    color: theme.colors.text,
     fontSize: 12,
     fontWeight: '700',
   },
@@ -3139,22 +5124,22 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: 10,
-    backgroundColor: '#111',
+    backgroundColor: theme.colors.surfaceMuted,
   },
   pdfStatusOverlay: {
     ...StyleSheet.absoluteFillObject,
     alignItems: 'center',
     justifyContent: 'center',
     gap: 10,
-    backgroundColor: 'rgba(17,17,17,0.82)',
+    backgroundColor: theme.colors.overlay,
   },
   placeholderText: {
-    color: '#fff',
+    color: theme.colors.text,
     fontWeight: 'bold',
     letterSpacing: 1,
   },
   nativeHint: {
-    color: 'rgba(255,255,255,0.45)',
+    color: theme.colors.textSoft,
     fontSize: 12,
     textAlign: 'center',
     maxWidth: 220,
@@ -3165,9 +5150,18 @@ const styles = StyleSheet.create({
     marginHorizontal: 20,
     marginBottom: 24,
     padding: 8,
-    backgroundColor: 'rgba(255,255,255,0.05)',
-    borderRadius: 20,
+    backgroundColor: theme.colors.surface,
+    borderRadius: 22,
     gap: 8,
+    ...(Platform.OS === 'web'
+      ? { boxShadow: `6px 6px 12px ${theme.neu.colors.darkShadow}, -6px -6px 12px ${theme.neu.colors.lightShadow}` } as any
+      : {
+          shadowColor: '#000',
+          shadowOffset: { width: 5, height: 5 },
+          shadowOpacity: 0.45,
+          shadowRadius: 10,
+          elevation: 8,
+        }),
   },
   toolBtn: {
     width: 44,
@@ -3177,7 +5171,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   activeToolBtn: {
-    backgroundColor: '#fff',
+    backgroundColor: theme.colors.accentStrong,
   },
   toolDivider: {
     flex: 1,
@@ -3188,14 +5182,14 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#fff',
+    backgroundColor: theme.colors.surfaceSoft,
   },
   bottomPanel: {
     zIndex: 10,
   },
   modalBackdrop: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.6)',
+    backgroundColor: theme.colors.overlay,
     alignItems: 'center',
     justifyContent: 'center',
     padding: 20,
@@ -3204,13 +5198,20 @@ const styles = StyleSheet.create({
     width: '100%',
     maxWidth: 360,
     borderRadius: 20,
-    backgroundColor: '#111',
+    backgroundColor: theme.colors.surface,
     padding: 18,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.08)',
+    ...(Platform.OS === 'web'
+      ? { boxShadow: `8px 8px 16px ${theme.neu.colors.darkShadow}, -8px -8px 16px ${theme.neu.colors.lightShadow}` } as any
+      : {
+          shadowColor: '#000',
+          shadowOffset: { width: 6, height: 6 },
+          shadowOpacity: 0.5,
+          shadowRadius: 12,
+          elevation: 10,
+        }),
   },
   modalTitle: {
-    color: '#fff',
+    color: theme.colors.text,
     fontSize: 18,
     fontWeight: '700',
     marginBottom: 12,
@@ -3218,10 +5219,13 @@ const styles = StyleSheet.create({
   modalInput: {
     minHeight: 110,
     borderRadius: 14,
-    backgroundColor: 'rgba(255,255,255,0.06)',
-    color: '#fff',
+    backgroundColor: theme.colors.surfaceMuted,
+    color: theme.colors.text,
     padding: 12,
     textAlignVertical: 'top',
+    ...(Platform.OS === 'web'
+      ? { boxShadow: theme.neu.shadowStyles.lightLayerInset.boxShadow } as any
+      : {}),
   },
   modalActions: {
     flexDirection: 'row',
@@ -3230,13 +5234,13 @@ const styles = StyleSheet.create({
     marginTop: 14,
   },
   commentAuthor: {
-    color: 'rgba(255,255,255,0.55)',
+    color: theme.colors.textMuted,
     fontSize: 12,
     fontWeight: '700',
     marginBottom: 8,
   },
   commentBody: {
-    color: '#fff',
+    color: theme.colors.text,
     fontSize: 15,
     lineHeight: 22,
   },
@@ -3244,20 +5248,20 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     paddingVertical: 10,
     borderRadius: 12,
-    backgroundColor: 'rgba(255,255,255,0.08)',
+    backgroundColor: theme.colors.surfaceSoft,
   },
   modalBtnGhostText: {
-    color: '#fff',
+    color: theme.colors.text,
     fontWeight: '600',
   },
   modalBtn: {
     paddingHorizontal: 14,
     paddingVertical: 10,
     borderRadius: 12,
-    backgroundColor: '#ec6400',
+    backgroundColor: theme.colors.accentStrong,
   },
   modalBtnText: {
-    color: '#000',
+    color: theme.colors.white,
     fontWeight: '700',
   },
 });

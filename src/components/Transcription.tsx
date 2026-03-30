@@ -8,6 +8,9 @@ import { uriToBase64 } from '../lib/blob-utils';
 import { PDFDocument as PDFLib, StandardFonts, rgb } from 'pdf-lib';
 import { savePdf } from '../lib/savePdf';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { theme } from '../theme';
+import NeumorphicButton from './NeumorphicButton';
+import NeumorphicView from './NeumorphicView';
 
 interface TranscriptionProps {
   setView: (view: any) => void;
@@ -96,11 +99,11 @@ export default function Transcription({ setView }: TranscriptionProps) {
   };
 
   return (
-    <SafeAreaView style={styles.container} edges={['top']}>
+    <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => setView('dashboard')} style={styles.backButton}>
-          <ChevronLeft size={24} color="#fff" />
-        </TouchableOpacity>
+        <NeumorphicButton radius={12} layerStyle={styles.backButton} onPress={() => setView('dashboard')}>
+          <ChevronLeft size={24} color={theme.colors.text} />
+        </NeumorphicButton>
         <View>
           <Text style={styles.title}>AI Transcription</Text>
           <Text style={styles.subtitle}>POWERED BY GEMINI AI</Text>
@@ -110,52 +113,54 @@ export default function Transcription({ setView }: TranscriptionProps) {
       <ScrollView contentContainerStyle={styles.scrollContent}>
         {!transcript ? (
           <View style={styles.uploadSection}>
-            <View style={styles.aiBadge}>
-              <Sparkles size={14} color="#fff" />
+            <NeumorphicView radius={12} style={styles.aiBadge}>
+              <Sparkles size={14} color={theme.colors.accentStrong} />
               <Text style={styles.aiBadgeText}>AI POWERED</Text>
-            </View>
+            </NeumorphicView>
             <Text style={styles.uploadTitle}>Extract text from any PDF or Image</Text>
             <Text style={styles.uploadSubtitle}>Upload a file and let our AI handle the rest.</Text>
 
-            <TouchableOpacity 
-              style={[styles.dropzone, file && styles.dropzoneActive]} 
+            <NeumorphicButton 
+              radius={24}
+              layerStyle={[styles.dropzone, file && styles.dropzoneActive]} 
               onPress={pickFile}
             >
               {file ? (
                 <View style={styles.fileInfo}>
-                  <FileText size={40} color="#fff" />
+                  <FileText size={40} color={theme.colors.text} />
                   <Text style={styles.fileName} numberOfLines={1}>{file.name}</Text>
                   <TouchableOpacity onPress={() => setFile(null)} style={styles.removeFile}>
-                    <X size={16} color="rgba(255,255,255,0.4)" />
+                    <X size={16} color={theme.colors.textSoft} />
                   </TouchableOpacity>
                 </View>
               ) : (
                 <View style={styles.emptyDropzone}>
-                  <View style={styles.dropzoneIcon}>
-                    <Zap size={32} color="rgba(255,255,255,0.2)" />
-                  </View>
+                  <NeumorphicView pressed radius={18} layerStyle={styles.dropzoneIcon}>
+                    <Zap size={32} color={theme.colors.textMuted} />
+                  </NeumorphicView>
                   <Text style={styles.dropzoneText}>TAP TO SELECT FILE</Text>
                   <Text style={styles.dropzoneSub}>PDF, JPG, PNG SUPPORTED</Text>
                 </View>
               )}
-            </TouchableOpacity>
+            </NeumorphicButton>
 
             {error ? <Text style={styles.errorText}>{error}</Text> : null}
 
-            <TouchableOpacity 
-              style={[styles.transcribeButton, !file && styles.transcribeButtonDisabled]} 
+            <NeumorphicButton 
+              radius={30}
+              layerStyle={[styles.transcribeButton, !file && styles.transcribeButtonDisabled, file && { backgroundColor: theme.colors.accentStrong }]} 
               onPress={handleTranscribe}
               disabled={!file || transcribing}
             >
               {transcribing ? (
-                <ActivityIndicator color="#000" />
+                <ActivityIndicator color={theme.colors.white} />
               ) : (
                 <>
-                  <Zap size={20} color="#000" />
+                  <Zap size={20} color={theme.colors.white} />
                   <Text style={styles.transcribeButtonText}>START TRANSCRIPTION</Text>
                 </>
               )}
-            </TouchableOpacity>
+            </NeumorphicButton>
           </View>
         ) : (
           <View style={styles.transcriptSection}>
@@ -163,19 +168,19 @@ export default function Transcription({ setView }: TranscriptionProps) {
               <Text style={styles.transcriptTitle}>TRANSCRIPTION RESULT</Text>
               <View style={styles.transcriptActions}>
                 <TouchableOpacity onPress={copyToClipboard} style={styles.iconAction}>
-                  <Copy size={18} color="rgba(255,255,255,0.4)" />
+                  <Copy size={18} color={theme.colors.textMuted} />
                 </TouchableOpacity>
                 <TouchableOpacity onPress={exportAsPDF} style={styles.iconAction}>
-                  <Download size={18} color="rgba(255,255,255,0.4)" />
+                  <Download size={18} color={theme.colors.textMuted} />
                 </TouchableOpacity>
               </View>
             </View>
-            <View style={styles.transcriptContent}>
+            <NeumorphicView pressed radius={20} style={styles.transcriptContent}>
               <Text style={styles.transcriptText}>{transcript}</Text>
-            </View>
-            <TouchableOpacity style={styles.resetButton} onPress={() => setTranscript('')}>
+            </NeumorphicView>
+            <NeumorphicButton radius={14} layerStyle={styles.resetButton} onPress={() => setTranscript('')}>
               <Text style={styles.resetButtonText}>NEW TRANSCRIPTION</Text>
-            </TouchableOpacity>
+            </NeumorphicButton>
           </View>
         )}
       </ScrollView>
@@ -186,7 +191,7 @@ export default function Transcription({ setView }: TranscriptionProps) {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#0a0a0a',
+    backgroundColor: theme.colors.bg,
   },
   header: {
     flexDirection: 'row',
@@ -198,18 +203,16 @@ const styles = StyleSheet.create({
   backButton: {
     width: 40,
     height: 40,
-    backgroundColor: 'rgba(255,255,255,0.05)',
-    borderRadius: 12,
-    alignItems: 'center',
-    justifyContent: 'center',
+    paddingHorizontal: 0,
+    paddingVertical: 0,
   },
   title: {
-    color: '#fff',
+    color: theme.colors.text,
     fontSize: 18,
     fontWeight: 'bold',
   },
   subtitle: {
-    color: 'rgba(255,255,255,0.4)',
+    color: theme.colors.textSoft,
     fontSize: 10,
     fontWeight: 'bold',
     letterSpacing: 1,
@@ -227,20 +230,18 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    backgroundColor: 'rgba(255,255,255,0.1)',
     paddingHorizontal: 12,
     paddingVertical: 6,
-    borderRadius: 20,
     marginBottom: 20,
   },
   aiBadgeText: {
-    color: '#fff',
+    color: theme.colors.text,
     fontSize: 10,
     fontWeight: 'bold',
     letterSpacing: 1,
   },
   uploadTitle: {
-    color: '#fff',
+    color: theme.colors.text,
     fontSize: 24,
     fontWeight: 'bold',
     textAlign: 'center',
@@ -248,7 +249,7 @@ const styles = StyleSheet.create({
     letterSpacing: -0.5,
   },
   uploadSubtitle: {
-    color: 'rgba(255,255,255,0.4)',
+    color: theme.colors.textMuted,
     fontSize: 14,
     textAlign: 'center',
     marginBottom: 40,
@@ -256,19 +257,11 @@ const styles = StyleSheet.create({
   dropzone: {
     width: '100%',
     height: 200,
-    backgroundColor: 'rgba(255,255,255,0.02)',
-    borderWidth: 2,
-    borderColor: 'rgba(255,255,255,0.1)',
-    borderStyle: 'dashed',
-    borderRadius: 24,
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: 30,
   },
   dropzoneActive: {
-    borderColor: '#fff',
-    backgroundColor: 'rgba(255,255,255,0.05)',
-    borderStyle: 'solid',
   },
   emptyDropzone: {
     alignItems: 'center',
@@ -276,20 +269,18 @@ const styles = StyleSheet.create({
   dropzoneIcon: {
     width: 64,
     height: 64,
-    backgroundColor: 'rgba(255,255,255,0.05)',
-    borderRadius: 20,
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: 15,
   },
   dropzoneText: {
-    color: '#fff',
+    color: theme.colors.text,
     fontSize: 12,
     fontWeight: 'bold',
     letterSpacing: 1,
   },
   dropzoneSub: {
-    color: 'rgba(255,255,255,0.2)',
+    color: theme.colors.textSoft,
     fontSize: 10,
     marginTop: 5,
   },
@@ -317,19 +308,17 @@ const styles = StyleSheet.create({
   },
   transcribeButton: {
     width: '100%',
-    height: 60,
-    backgroundColor: '#fff',
-    borderRadius: 30,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 12,
+    paddingVertical: 18,
   },
   transcribeButtonDisabled: {
     opacity: 0.5,
   },
   transcribeButtonText: {
-    color: '#000',
+    color: theme.colors.white,
     fontSize: 14,
     fontWeight: 'bold',
     letterSpacing: 1,
@@ -344,7 +333,7 @@ const styles = StyleSheet.create({
     marginBottom: 15,
   },
   transcriptTitle: {
-    color: 'rgba(255,255,255,0.4)',
+    color: theme.colors.textMuted,
     fontSize: 10,
     fontWeight: 'bold',
     letterSpacing: 1,
@@ -357,22 +346,21 @@ const styles = StyleSheet.create({
     padding: 5,
   },
   transcriptContent: {
-    backgroundColor: 'rgba(255,255,255,0.05)',
-    borderRadius: 20,
     padding: 25,
     minHeight: 300,
   },
   transcriptText: {
-    color: '#fff',
+    color: theme.colors.text,
     fontSize: 16,
     lineHeight: 24,
   },
   resetButton: {
     marginTop: 30,
     alignItems: 'center',
+    paddingVertical: 15,
   },
   resetButtonText: {
-    color: 'rgba(255,255,255,0.4)',
+    color: theme.colors.textMuted,
     fontSize: 12,
     fontWeight: 'bold',
     letterSpacing: 1,

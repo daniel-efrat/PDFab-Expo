@@ -1,37 +1,79 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, ActivityIndicator, Image, Alert, Modal, Dimensions } from 'react-native';
-import { useStore } from '../store/useStore';
-import { ChevronLeft, PenTool, Trash2, Plus, Check, X, Sparkles } from 'lucide-react-native';
-import { db, storage } from '../firebase';
-import { doc, setDoc, deleteDoc, collection, onSnapshot } from 'firebase/firestore';
-import { ref, uploadString, getDownloadURL, deleteObject } from 'firebase/storage';
-import { Svg, Path, G } from 'react-native-svg';
+import React, { useEffect, useMemo, useState } from 'react';
+import {
+  ActivityIndicator,
+  Alert,
+  Image,
+  Modal,
+  Platform,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  useWindowDimensions,
+  View,
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-
-const { width } = Dimensions.get('window');
+import { Camera, Check, ChevronLeft, Image as ImageIcon, PenTool, Plus, Trash2, X } from 'lucide-react-native';
+import * as ImagePicker from 'expo-image-picker';
+import * as FileSystem from 'expo-file-system/legacy';
+import { collection, deleteDoc, doc, onSnapshot, setDoc } from 'firebase/firestore';
+import { ref as storageRef, getDownloadURL } from 'firebase/storage';
+import { G, Path, Svg } from 'react-native-svg';
+import { db, storage } from '../firebase';
+import { uploadFileToFirebase } from '../lib/firebase-upload';
+import { useStore } from '../store/useStore';
+import { theme } from '../theme';
+import NeumorphicButton from './NeumorphicButton';
+import NeumorphicView from './NeumorphicView';
 
 interface SignaturesProps {
   setView: (view: any) => void;
 }
 
+type SlotId = 'signature' | 'initials';
+type ComposerMode = 'draw' | 'image' | 'camera';
+type SignaturePayload =
+  | { kind: 'draw'; paths: string[]; updatedAt: string }
+  | { kind: 'image'; imageUri: string; updatedAt: string };
+
+function parseSignatureData(raw: any): SignaturePayload | null {
+  if (!raw?.data) return null;
+  try {
+    return JSON.parse(raw.data) as SignaturePayload;
+  } catch {
+    return null;
+  }
+}
+
+function getScreenOrientationModule() {
+  try {
+    // Loaded lazily so a stale native build doesn't crash module initialization.
+    return require('expo-screen-orientation');
+  } catch {
+    return null;
+  }
+}
+
 export default function Signatures({ setView }: SignaturesProps) {
   const { user } = useStore();
+  const windowDimensions = useWindowDimensions();
   const [slots, setSlots] = useState<{ [key: string]: any }>({});
   const [loading, setLoading] = useState(true);
-  const [activeSlot, setActiveSlot] = useState<'signature' | 'initials' | null>(null);
+  const [activeSlot, setActiveSlot] = useState<SlotId | null>(null);
   const [saving, setSaving] = useState(false);
-  
-  // Drawing state
-  const [currentPath, setCurrentPath] = useState<string>('');
+  const [composerMode, setComposerMode] = useState<ComposerMode>('draw');
+  const [currentPath, setCurrentPath] = useState('');
   const [paths, setPaths] = useState<string[]>([]);
+  const [selectedImageUri, setSelectedImageUri] = useState<string | null>(null);
+  const [imageBusy, setImageBusy] = useState(false);
 
   useEffect(() => {
     if (!user) return;
 
     const unsubscribe = onSnapshot(collection(db, `users/${user.uid}/signatureSlots`), (snapshot) => {
       const data: any = {};
-      snapshot.docs.forEach(d => {
-        data[d.id] = d.data();
+      snapshot.docs.forEach((slotDoc) => {
+        data[slotDoc.id] = slotDoc.data();
       });
       setSlots(data);
       setLoading(false);
@@ -40,41 +82,183 @@ export default function Signatures({ setView }: SignaturesProps) {
     return () => unsubscribe();
   }, [user]);
 
+  useEffect(() => {
+    if (!activeSlot) return;
+    const ScreenOrientation = getScreenOrientationModule();
+    if (!ScreenOrientation) return;
+
+    void ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.LANDSCAPE).catch(() => {});
+
+    return () => {
+      void ScreenOrientation.unlockAsync().catch(() => {});
+    };
+  }, [activeSlot]);
+
+  const composerLandscapeWidth = Math.max(windowDimensions.width, windowDimensions.height);
+  const composerLandscapeHeight = Math.min(windowDimensions.width, windowDimensions.height);
+
+
+  const activeSlotLabel = activeSlot === 'signature' ? 'Signature' : 'Initials';
+  const hasDrawableContent = paths.length > 0;
+  const canSave =
+    composerMode === 'draw'
+      ? hasDrawableContent
+      : !!selectedImageUri;
+
+  const closeComposer = () => {
+    setActiveSlot(null);
+    setComposerMode('draw');
+    setCurrentPath('');
+    setPaths([]);
+    setSelectedImageUri(null);
+    setImageBusy(false);
+  };
+
+  const openComposer = (slotId: SlotId) => {
+    const existing = parseSignatureData(slots[slotId]);
+    setActiveSlot(slotId);
+    setComposerMode(existing?.kind === 'image' ? 'image' : 'draw');
+    setCurrentPath('');
+    setPaths(existing?.kind === 'draw' ? existing.paths : []);
+    setSelectedImageUri(existing?.kind === 'image' ? existing.imageUri : null);
+  };
+
   const handleTouchStart = (e: any) => {
+    if (composerMode !== 'draw') return;
     const { locationX, locationY } = e.nativeEvent;
     setCurrentPath(`M${locationX},${locationY}`);
   };
 
   const handleTouchMove = (e: any) => {
+    if (composerMode !== 'draw') return;
     const { locationX, locationY } = e.nativeEvent;
-    setCurrentPath(prev => `${prev} L${locationX},${locationY}`);
+    setCurrentPath((prev) => `${prev} L${locationX},${locationY}`);
   };
 
   const handleTouchEnd = () => {
-    setPaths(prev => [...prev, currentPath]);
+    if (composerMode !== 'draw' || !currentPath) return;
+    setPaths((prev) => [...prev, currentPath]);
     setCurrentPath('');
   };
 
+  const removeBackground = async (base64: string, mimeType: string): Promise<string> => {
+    const originalUri = `data:${mimeType || 'image/png'};base64,${base64}`;
+    const apiKey = process.env.EXPO_PUBLIC_REMOVE_BG_API_KEY;
+    if (!apiKey) return originalUri;
+    try {
+      const response = await fetch('https://api.withoutbg.com/v1.0/image-without-background-base64', {
+        method: 'POST',
+        headers: {
+          'X-API-Key': apiKey,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ image_base64: base64 }),
+      });
+      if (!response.ok) {
+        console.error('[removeBackground] API error:', response.status, await response.text());
+        return originalUri;
+      }
+      const data = await response.json();
+      return `data:image/png;base64,${data.img_without_background_base64}`;
+    } catch (e) {
+      console.error('[removeBackground] Error:', e);
+      return originalUri;
+    }
+  };
+
+  const importImage = async (source: 'library' | 'camera') => {
+    try {
+      setImageBusy(true);
+      const permissionResult =
+        source === 'camera'
+          ? await ImagePicker.requestCameraPermissionsAsync()
+          : await ImagePicker.requestMediaLibraryPermissionsAsync();
+
+      if (!permissionResult.granted) {
+        Alert.alert('Permission needed', source === 'camera' ? 'Camera access is required.' : 'Photo library access is required.');
+        return;
+      }
+
+      const result =
+        source === 'camera'
+          ? await ImagePicker.launchCameraAsync({
+              mediaTypes: ['images'],
+              quality: 1,
+              base64: true,
+              allowsEditing: true,
+              aspect: [4, 2],
+            })
+          : await ImagePicker.launchImageLibraryAsync({
+              mediaTypes: ['images'],
+              quality: 1,
+              base64: true,
+              allowsEditing: true,
+              aspect: [4, 2],
+            });
+
+      if (result.canceled || !result.assets[0]) {
+        return;
+      }
+
+      const asset = result.assets[0];
+      let imageUri = asset.uri;
+
+      if (asset.base64) {
+        imageUri = await removeBackground(asset.base64, asset.mimeType || 'image/png');
+      }
+
+      setSelectedImageUri(imageUri);
+    } catch (error) {
+      console.error('Import signature image error:', error);
+    } finally {
+      setImageBusy(false);
+    }
+  };
+
   const handleSave = async () => {
-    if (!user || !activeSlot || paths.length === 0) return;
+    if (!user || !activeSlot || !canSave) return;
     setSaving(true);
     try {
-      // In a real app, we'd convert SVG to PNG/DataURL
-      // For this demo, we'll store the SVG paths as data
-      const signatureData = {
-        paths,
-        updatedAt: new Date().toISOString(),
-      };
+      let imageUri = selectedImageUri ?? '';
+
+      if (composerMode !== 'draw' && imageUri.startsWith('data:')) {
+        const [header, base64Data] = imageUri.split(',');
+        const mimeType = header.match(/data:(.*);base64/)?.[1] || 'image/png';
+        const ext = mimeType.includes('png') ? 'png' : 'jpg';
+
+        let uploadSrc: string = imageUri;
+        let tempPath: string | null = null;
+
+        if (Platform.OS !== 'web') {
+          tempPath = `${FileSystem.cacheDirectory}sig-${Date.now()}.${ext}`;
+          await FileSystem.writeAsStringAsync(tempPath, base64Data, {
+            encoding: FileSystem.EncodingType.Base64,
+          });
+          uploadSrc = tempPath;
+        }
+
+        const sigRef = storageRef(storage, `users/${user.uid}/signatures/${activeSlot}.png`);
+        await uploadFileToFirebase(sigRef, uploadSrc, { contentType: mimeType });
+        imageUri = await getDownloadURL(sigRef);
+
+        if (tempPath) {
+          await FileSystem.deleteAsync(tempPath, { idempotent: true }).catch(() => {});
+        }
+      }
+
+      const signatureData: SignaturePayload =
+        composerMode === 'draw'
+          ? { kind: 'draw', paths, updatedAt: new Date().toISOString() }
+          : { kind: 'image', imageUri, updatedAt: new Date().toISOString() };
 
       await setDoc(doc(db, `users/${user.uid}/signatureSlots`, activeSlot), {
         type: activeSlot,
         data: JSON.stringify(signatureData),
-        imageUrl: '', // Placeholder
-        updatedAt: new Date().toISOString()
+        imageUrl: composerMode !== 'draw' ? imageUri : '',
+        updatedAt: new Date().toISOString(),
       });
 
-      setActiveSlot(null);
-      setPaths([]);
+      closeComposer();
     } catch (error) {
       console.error('Save signature error:', error);
     } finally {
@@ -82,34 +266,34 @@ export default function Signatures({ setView }: SignaturesProps) {
     }
   };
 
-  const handleDelete = async (slotId: string) => {
+  const handleDelete = async (slotId: SlotId) => {
     if (!user || !slots[slotId]) return;
     Alert.alert(
-      "Delete Signature",
+      'Delete Signature',
       `Are you sure you want to delete your ${slotId}?`,
       [
-        { text: "Cancel", style: "cancel" },
-        { 
-          text: "Delete", 
-          style: "destructive",
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
           onPress: async () => {
             try {
               await deleteDoc(doc(db, `users/${user.uid}/signatureSlots`, slotId));
             } catch (error) {
               console.error('Delete signature error:', error);
             }
-          }
-        }
+          },
+        },
       ]
     );
   };
 
   return (
-    <SafeAreaView style={styles.container} edges={['top']}>
+    <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => setView('dashboard')} style={styles.backButton}>
-          <ChevronLeft size={24} color="#fff" />
-        </TouchableOpacity>
+        <NeumorphicButton radius={12} layerStyle={styles.backButton} onPress={() => setView('dashboard')}>
+          <ChevronLeft size={24} color={theme.colors.text} />
+        </NeumorphicButton>
         <View>
           <Text style={styles.title}>Signatures Hub</Text>
           <Text style={styles.subtitle}>MANAGE YOUR SAVED SIGNATURES</Text>
@@ -118,88 +302,217 @@ export default function Signatures({ setView }: SignaturesProps) {
 
       <ScrollView contentContainerStyle={styles.scrollContent}>
         {loading ? (
-          <ActivityIndicator color="#fff" style={{ marginTop: 50 }} />
+          <ActivityIndicator color={theme.colors.white} style={{ marginTop: 50 }} />
         ) : (
           <View style={styles.grid}>
-            <SignatureCard 
-              id="signature" 
-              label="Full Signature" 
-              data={slots.signature} 
-              onEdit={() => setActiveSlot('signature')} 
-              onDelete={() => handleDelete('signature')} 
+            <SignatureCard
+              id="signature"
+              label="Full Signature"
+              data={slots.signature}
+              onEdit={() => openComposer('signature')}
+              onDelete={() => handleDelete('signature')}
             />
-            <SignatureCard 
-              id="initials" 
-              label="Initials" 
-              data={slots.initials} 
-              onEdit={() => setActiveSlot('initials')} 
-              onDelete={() => handleDelete('initials')} 
+            <SignatureCard
+              id="initials"
+              label="Initials"
+              data={slots.initials}
+              onEdit={() => openComposer('initials')}
+              onDelete={() => handleDelete('initials')}
             />
           </View>
         )}
       </ScrollView>
 
-      <Modal visible={activeSlot !== null} animationType="slide" transparent>
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <View style={styles.modalHeader}>
-              <View>
-                <Text style={styles.modalTitle}>Create {activeSlot === 'signature' ? 'Signature' : 'Initials'}</Text>
-                <Text style={styles.modalSubtitle}>DRAW YOUR SIGNATURE BELOW</Text>
-              </View>
-              <TouchableOpacity onPress={() => { setActiveSlot(null); setPaths([]); }}>
-                <X size={24} color="rgba(255,255,255,0.4)" />
-              </TouchableOpacity>
-            </View>
+      <Modal
+        visible={activeSlot !== null}
+        animationType="slide"
+        transparent={false}
+        presentationStyle="fullScreen"
+        supportedOrientations={['landscape']}
+      >
+        <SafeAreaView style={styles.composerRoot} edges={['top', 'bottom']}>
+          <View style={styles.composerHeader}>
+            <TouchableOpacity onPress={closeComposer} style={styles.composerHeaderBtn}>
+              <Text style={styles.composerHeaderBtnText}>Cancel</Text>
+            </TouchableOpacity>
+ 
+             <View style={styles.composerTabs}>
+               <ComposerTab
+                 icon={PenTool}
+                 label="Draw"
+                 active={composerMode === 'draw'}
+                 onPress={() => setComposerMode('draw')}
+               />
+               <ComposerTab
+                 icon={ImageIcon}
+                 label="Image"
+                 active={composerMode === 'image'}
+                 onPress={() => {
+                   setComposerMode('image');
+                   if (!selectedImageUri) {
+                     importImage('library');
+                   }
+                 }}
+               />
+               <ComposerTab
+                 icon={Camera}
+                 label="Camera"
+                 active={composerMode === 'camera'}
+                 onPress={() => {
+                   setComposerMode('camera');
+                   if (!selectedImageUri) {
+                     importImage('camera');
+                   }
+                 }}
+               />
+             </View>
+ 
+             <TouchableOpacity
+               onPress={handleSave}
+               style={styles.composerHeaderBtn}
+               disabled={!canSave || saving}
+             >
+               <Text style={[styles.composerHeaderDoneText, (!canSave || saving) && styles.composerHeaderDoneTextDisabled]}>
+                 {saving ? 'Saving...' : 'Done'}
+               </Text>
+             </TouchableOpacity>
+           </View>
 
-            <View 
-              style={styles.canvas}
-              onStartShouldSetResponder={() => true}
-              onResponderGrant={handleTouchStart}
-              onResponderMove={handleTouchMove}
-              onResponderRelease={handleTouchEnd}
-            >
-              <Svg style={StyleSheet.absoluteFill}>
-                {paths.map((p, i) => (
-                  <G key={`path-${i}`}>
-                    <Path d={p} stroke="#000" strokeWidth={3} fill="none" />
-                  </G>
-                ))}
-                {currentPath ? (
-                  <G key="current-path">
-                    <Path d={currentPath} stroke="#000" strokeWidth={3} fill="none" />
-                  </G>
-                ) : null}
-              </Svg>
-            </View>
+          <View style={styles.composerStage}>
+            {composerMode === 'draw' ? (
+              <NeumorphicView
+                pressed
+                radius={24}
+                layerStyle={[
+                  styles.drawStage,
+                  {
+                    minHeight: Math.max(composerLandscapeHeight - 180, 280),
+                    backgroundColor: '#fff',
+                  },
+                ]}
+                onStartShouldSetResponder={() => true}
+                onResponderGrant={handleTouchStart}
+                onResponderMove={handleTouchMove}
+                onResponderRelease={handleTouchEnd}
+              >
+                <Text style={styles.signHereLabel}>Sign Here</Text>
+                <View style={styles.signGuideBadge}>
+                  <Text style={styles.signGuideBadgeText}>Sign</Text>
+                </View>
+                <View style={styles.signGuideLine} />
+                <Svg style={StyleSheet.absoluteFill}>
+                  {paths.map((path, index) => (
+                    <G key={`path-${index}`}>
+                      <Path d={path} stroke="#111" strokeWidth={3} fill="none" />
+                    </G>
+                  ))}
+                  {currentPath ? (
+                    <G key="current-path">
+                      <Path d={currentPath} stroke="#111" strokeWidth={3} fill="none" />
+                    </G>
+                  ) : null}
+                </Svg>
+              </NeumorphicView>
+            ) : (
+              <NeumorphicView
+                pressed
+                radius={24}
+                layerStyle={[
+                  styles.assetStage,
+                  {
+                    minHeight: Math.max(composerLandscapeHeight - 180, 280),
+                    width: Math.max(composerLandscapeWidth - 36, 280),
+                    backgroundColor: '#fff',
+                  },
+                ]}
+              >
+                {selectedImageUri ? (
+                  <Image source={{ uri: selectedImageUri }} style={styles.assetPreview as any} resizeMode="contain" />
+                ) : (
+                  <View style={styles.assetPlaceholder}>
+                    {imageBusy ? (
+                      <ActivityIndicator color="#111" />
+                    ) : (
+                      <>
+                        {composerMode === 'image' ? <ImageIcon size={34} color="rgba(17,17,17,0.28)" /> : <Camera size={34} color="rgba(17,17,17,0.28)" />}
+                        <Text style={styles.assetPlaceholderText}>
+                          {composerMode === 'image' ? 'Pick an image to turn into a signature.' : 'Capture a signature with the camera.'}
+                        </Text>
+                      </>
+                    )}
+                  </View>
+                )}
 
-            <View style={styles.modalFooter}>
-              <TouchableOpacity onPress={() => setPaths([])} style={styles.clearButton}>
-                <Trash2 size={16} color="rgba(255,255,255,0.4)" />
-                <Text style={styles.clearButtonText}>CLEAR</Text>
-              </TouchableOpacity>
-              <View style={styles.footerActions}>
-                <TouchableOpacity onPress={() => { setActiveSlot(null); setPaths([]); }} style={styles.cancelButton}>
-                  <Text style={styles.cancelButtonText}>CANCEL</Text>
+                <TouchableOpacity
+                  style={styles.assetActionBtn}
+                  onPress={() => importImage(composerMode === 'image' ? 'library' : 'camera')}
+                  disabled={imageBusy}
+                >
+                  <Text style={styles.assetActionBtnText}>
+                    {imageBusy
+                      ? 'Processing...'
+                      : composerMode === 'image'
+                        ? selectedImageUri ? 'Choose Another Image' : 'Choose Image'
+                        : selectedImageUri ? 'Retake Photo' : 'Open Camera'}
+                  </Text>
                 </TouchableOpacity>
-                <TouchableOpacity style={styles.saveButton} onPress={handleSave} disabled={saving || paths.length === 0}>
-                  {saving ? <ActivityIndicator color="#000" /> : <Check size={20} color="#000" />}
-                  <Text style={styles.saveButtonText}>{saving ? 'SAVING...' : 'SAVE'}</Text>
-                </TouchableOpacity>
-              </View>
-            </View>
+                </NeumorphicView>
+            )}
           </View>
-        </View>
+
+          <View style={styles.composerFooter}>
+            {composerMode === 'draw' ? (
+              <TouchableOpacity onPress={() => { setPaths([]); setCurrentPath(''); }} style={styles.clearButton}>
+                <Trash2 size={16} color="rgba(255,255,255,0.55)" />
+                <Text style={styles.clearButtonText}>Clear</Text>
+              </TouchableOpacity>
+            ) : (
+              <View />
+            )}
+          </View>
+        </SafeAreaView>
       </Modal>
     </SafeAreaView>
   );
 }
 
-function SignatureCard({ id, label, data, onEdit, onDelete }: { id: string, label: string, data: any, onEdit: () => void, onDelete: () => void }) {
-  const signatureData = data ? JSON.parse(data.data) : null;
+function ComposerTab({
+  icon: Icon,
+  label,
+  active,
+  onPress,
+}: {
+  icon: any;
+  label: string;
+  active: boolean;
+  onPress: () => void;
+}) {
+  return (
+    <TouchableOpacity style={styles.composerTab} onPress={onPress}>
+      <Icon size={22} color={active ? '#60a5fa' : 'rgba(255,255,255,0.85)'} />
+      <Text style={[styles.composerTabText, active && styles.composerTabTextActive]}>{label}</Text>
+      <View style={[styles.composerTabUnderline, active && styles.composerTabUnderlineActive]} />
+    </TouchableOpacity>
+  );
+}
+
+function SignatureCard({
+  id,
+  label,
+  data,
+  onEdit,
+  onDelete,
+}: {
+  id: string;
+  label: string;
+  data: any;
+  onEdit: () => void;
+  onDelete: () => void;
+}) {
+  const signatureData = useMemo(() => parseSignatureData(data), [data]);
 
   return (
-    <View style={styles.card}>
+    <NeumorphicView radius={24} style={styles.card}>
       <View style={styles.cardHeader}>
         <View>
           <Text style={styles.cardLabel}>{label}</Text>
@@ -207,38 +520,42 @@ function SignatureCard({ id, label, data, onEdit, onDelete }: { id: string, labe
         </View>
         {data && (
           <TouchableOpacity onPress={onDelete}>
-            <Trash2 size={18} color="rgba(255,255,255,0.2)" />
+            <Trash2 size={18} color={theme.colors.textMuted} />
           </TouchableOpacity>
         )}
       </View>
 
-      <TouchableOpacity style={styles.cardPreview} onPress={onEdit}>
+      <NeumorphicButton radius={16} layerStyle={styles.cardPreview} onPress={onEdit}>
         {signatureData ? (
-          <Svg style={StyleSheet.absoluteFill}>
-            {signatureData.paths.map((p: string, i: number) => (
-              <G key={`preview-${i}`}>
-                <Path d={p} stroke="#fff" strokeWidth={2} fill="none" scale={0.6} />
-              </G>
-            ))}
-          </Svg>
+          signatureData.kind === 'draw' ? (
+            <Svg style={StyleSheet.absoluteFill}>
+              {signatureData.paths.map((path, index) => (
+                <G key={`preview-${index}`}>
+                  <Path d={path} stroke="#fff" strokeWidth={2} fill="none" scale={0.6} />
+                </G>
+              ))}
+            </Svg>
+          ) : (
+            <Image source={{ uri: signatureData.imageUri }} style={styles.cardPreviewImage as any} resizeMode="contain" />
+          )
         ) : (
           <View style={styles.emptyPreview}>
-            <Plus size={24} color="rgba(255,255,255,0.1)" />
+            <Plus size={24} color={theme.colors.textSoft} />
           </View>
         )}
         <View style={styles.editOverlay}>
           <PenTool size={20} color="#000" />
           <Text style={styles.editText}>{data ? 'EDIT' : 'CREATE'}</Text>
         </View>
-      </TouchableOpacity>
-    </View>
+      </NeumorphicButton>
+    </NeumorphicView>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#0a0a0a',
+    backgroundColor: theme.colors.bg,
   },
   header: {
     flexDirection: 'row',
@@ -250,18 +567,16 @@ const styles = StyleSheet.create({
   backButton: {
     width: 40,
     height: 40,
-    backgroundColor: 'rgba(255,255,255,0.05)',
-    borderRadius: 12,
-    alignItems: 'center',
-    justifyContent: 'center',
+    paddingHorizontal: 0,
+    paddingVertical: 0,
   },
   title: {
-    color: '#fff',
+    color: theme.colors.text,
     fontSize: 18,
     fontWeight: 'bold',
   },
   subtitle: {
-    color: 'rgba(255,255,255,0.4)',
+    color: theme.colors.textSoft,
     fontSize: 10,
     fontWeight: 'bold',
     letterSpacing: 1,
@@ -275,10 +590,6 @@ const styles = StyleSheet.create({
     gap: 20,
   },
   card: {
-    backgroundColor: 'rgba(255,255,255,0.05)',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.1)',
-    borderRadius: 24,
     padding: 25,
   },
   cardHeader: {
@@ -288,12 +599,12 @@ const styles = StyleSheet.create({
     marginBottom: 20,
   },
   cardLabel: {
-    color: '#fff',
+    color: theme.colors.text,
     fontSize: 16,
     fontWeight: 'bold',
   },
   cardDate: {
-    color: 'rgba(255,255,255,0.4)',
+    color: theme.colors.textMuted,
     fontSize: 10,
     fontWeight: 'bold',
     letterSpacing: 1,
@@ -301,11 +612,13 @@ const styles = StyleSheet.create({
   },
   cardPreview: {
     height: 150,
-    backgroundColor: 'rgba(255,255,255,0.05)',
-    borderRadius: 16,
     alignItems: 'center',
     justifyContent: 'center',
     overflow: 'hidden',
+  },
+  cardPreviewImage: {
+    width: '100%',
+    height: '100%',
   },
   emptyPreview: {
     alignItems: 'center',
@@ -327,46 +640,149 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: 'bold',
   },
-  modalOverlay: {
+  composerRoot: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.8)',
-    justifyContent: 'flex-end',
+    backgroundColor: theme.colors.bg,
   },
-  modalContent: {
-    backgroundColor: '#161616',
-    borderTopLeftRadius: 30,
-    borderTopRightRadius: 30,
-    padding: 30,
-    paddingBottom: 50,
-  },
-  modalHeader: {
+  composerHeader: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 30,
+    justifyContent: 'space-between',
+    paddingHorizontal: 28,
+    paddingVertical: 18,
   },
-  modalTitle: {
+  composerHeaderBtn: {
+    minWidth: 92,
+  },
+  composerHeaderBtnText: {
+    color: theme.colors.text,
+    fontSize: 19,
+    fontWeight: '700',
+  },
+  composerHeaderDoneText: {
+    color: theme.colors.accentStrong,
+    fontSize: 19,
+    fontWeight: '700',
+    textAlign: 'right',
+  },
+  composerHeaderDoneTextDisabled: {
+    color: 'rgba(96,165,250,0.35)',
+  },
+  composerTabs: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    gap: 28,
+  },
+  composerTab: {
+    alignItems: 'center',
+    gap: 6,
+  },
+  composerTabText: {
+    color: theme.colors.textSoft,
+    fontSize: 18,
+  },
+  composerTabTextActive: {
+    color: theme.colors.accentStrong,
+  },
+  composerTabUnderline: {
+    marginTop: 4,
+    height: 3,
+    width: 78,
+    borderRadius: 999,
+    backgroundColor: 'transparent',
+  },
+  composerTabUnderlineActive: {
+    backgroundColor: theme.colors.accentStrong,
+  },
+  composerStage: {
+    flex: 1,
+    paddingHorizontal: 18,
+    paddingVertical: 14,
+  },
+  drawStage: {
+    flex: 1,
+    backgroundColor: '#fff',
+    borderRadius: 8,
+    overflow: 'hidden',
+  },
+  signHereLabel: {
+    position: 'absolute',
+    left: '50%',
+    top: '52%',
+    transform: [{ translateX: -100 }, { translateY: -24 }],
+    color: 'rgba(17,17,17,0.9)',
+    fontSize: 34,
+    zIndex: 1,
+  },
+  signGuideBadge: {
+    position: 'absolute',
+    left: 26,
+    top: '42%',
+    width: 62,
+    height: 150,
+    backgroundColor: '#ff5b47',
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 1,
+  },
+  signGuideBadgeText: {
     color: '#fff',
     fontSize: 20,
-    fontWeight: 'bold',
+    fontWeight: '700',
+    transform: [{ rotate: '90deg' }],
   },
-  modalSubtitle: {
-    color: 'rgba(255,255,255,0.4)',
-    fontSize: 10,
-    fontWeight: 'bold',
-    letterSpacing: 1,
-    marginTop: 2,
+  signGuideLine: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    top: '63%',
+    height: 2,
+    backgroundColor: theme.colors.accentStrong,
+    zIndex: 1,
   },
-  canvas: {
-    height: 250,
+  assetStage: {
+    flex: 1,
     backgroundColor: '#fff',
-    borderRadius: 20,
+    borderRadius: 8,
+    padding: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 18,
   },
-  modalFooter: {
+  assetPreview: {
+    width: '100%',
+    height: '100%',
+  },
+  assetPlaceholder: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 12,
+    width: '100%',
+  },
+  assetPlaceholderText: {
+    color: 'rgba(17,17,17,0.6)',
+    fontSize: 18,
+    textAlign: 'center',
+    maxWidth: 420,
+  },
+  assetActionBtn: {
+    backgroundColor: '#111',
+    paddingHorizontal: 22,
+    paddingVertical: 14,
+    borderRadius: 999,
+  },
+  assetActionBtnText: {
+    color: '#fff',
+    fontSize: 15,
+    fontWeight: '700',
+  },
+  composerFooter: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginTop: 30,
+    paddingHorizontal: 24,
+    paddingBottom: 18,
   },
   clearButton: {
     flexDirection: 'row',
@@ -374,35 +790,8 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   clearButtonText: {
-    color: 'rgba(255,255,255,0.4)',
-    fontSize: 12,
-    fontWeight: 'bold',
-  },
-  footerActions: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 20,
-  },
-  cancelButton: {
-    paddingVertical: 10,
-  },
-  cancelButtonText: {
-    color: 'rgba(255,255,255,0.4)',
+    color: 'rgba(255,255,255,0.55)',
     fontSize: 14,
-    fontWeight: 'bold',
-  },
-  saveButton: {
-    backgroundColor: '#fff',
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    paddingHorizontal: 25,
-    paddingVertical: 12,
-    borderRadius: 25,
-  },
-  saveButtonText: {
-    color: '#000',
-    fontSize: 14,
-    fontWeight: 'bold',
+    fontWeight: '700',
   },
 });

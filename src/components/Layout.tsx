@@ -5,7 +5,9 @@ import logoSrc from '../../public/logo.svg';
 import { LayoutDashboard, FileText, Type, PenTool, Camera, LogOut, User as UserIcon } from 'lucide-react-native';
 import { auth } from '../firebase';
 import { useStore } from '../store/useStore';
-import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { theme } from '../theme';
+import NeumorphicView from './NeumorphicView';
 
 interface LayoutProps {
   children: React.ReactNode;
@@ -16,6 +18,7 @@ interface LayoutProps {
 export default function Layout({ children, currentView, setView }: LayoutProps) {
   const { user } = useStore();
   const { width } = useWindowDimensions();
+  const insets = useSafeAreaInsets();
   const isMobile = width < 768 || Platform.OS !== 'web';
   const handleHomePress = () => setView('dashboard');
 
@@ -47,7 +50,7 @@ export default function Layout({ children, currentView, setView }: LayoutProps) 
           >
             <item.icon 
               size={20} 
-              color={currentView === item.id ? "#fff" : "rgba(255,255,255,0.4)"} 
+              color={currentView === item.id ? theme.colors.text : theme.colors.textMuted} 
             />
             <Text style={[
               styles.navLabel,
@@ -60,7 +63,7 @@ export default function Layout({ children, currentView, setView }: LayoutProps) 
       </ScrollView>
 
       <View style={styles.footer}>
-        <View style={styles.userCard}>
+        <NeumorphicView radius={18} style={styles.userCard}>
           {user?.photoURL ? (
             <Image 
               source={{ uri: user.photoURL }} 
@@ -69,7 +72,7 @@ export default function Layout({ children, currentView, setView }: LayoutProps) 
             />
           ) : (
             <View style={styles.avatarPlaceholder}>
-              <UserIcon size={16} color="rgba(255,255,255,0.4)" />
+              <UserIcon size={16} color={theme.colors.textMuted} />
             </View>
           )}
           <View style={styles.userInfo}>
@@ -84,15 +87,15 @@ export default function Layout({ children, currentView, setView }: LayoutProps) 
             onPress={() => auth.signOut()}
             style={styles.logoutButton}
           >
-            <LogOut size={16} color="rgba(255,255,255,0.4)" />
+            <LogOut size={16} color={theme.colors.textMuted} />
           </TouchableOpacity>
-        </View>
+        </NeumorphicView>
       </View>
     </View>
   );
 
   const BottomNav = () => (
-    <View style={styles.bottomNav}>
+    <View style={[styles.bottomNav, { paddingBottom: Math.max(insets.bottom, 10) }]}>
       {navItems.map((item) => (
         <TouchableOpacity
           key={item.id}
@@ -101,7 +104,7 @@ export default function Layout({ children, currentView, setView }: LayoutProps) 
         >
           <item.icon 
             size={22} 
-            color={currentView === item.id ? "#fff" : "rgba(255,255,255,0.4)"} 
+            color={currentView === item.id ? theme.colors.accentStrong : theme.colors.textMuted} 
           />
           <Text style={[
             styles.bottomNavLabel,
@@ -115,44 +118,45 @@ export default function Layout({ children, currentView, setView }: LayoutProps) 
         onPress={() => auth.signOut()}
         style={styles.bottomNavItem}
       >
-        <LogOut size={22} color="rgba(255,255,255,0.4)" />
+        <LogOut size={22} color={theme.colors.textMuted} />
         <Text style={styles.bottomNavLabel}>Logout</Text>
       </TouchableOpacity>
     </View>
   );
 
   return (
-    <SafeAreaProvider>
-      <SafeAreaView 
-        style={[
-          styles.container, 
-          { flexDirection: !isMobile ? 'row' : 'column' }
-        ]} 
-        edges={isMobile ? ['bottom'] : []}
-      >
-        {!isMobile && <Sidebar />}
-        <View style={styles.main}>
-          {children}
-        </View>
-        {isMobile && currentView !== 'editor' && currentView !== 'reflow' && <BottomNav />}
-      </SafeAreaView>
-    </SafeAreaProvider>
+    <SafeAreaView 
+      style={[
+        styles.container, 
+        { flexDirection: !isMobile ? 'row' : 'column' }
+      ]} 
+      edges={[]}
+    >
+      {!isMobile && <Sidebar />}
+      <View style={styles.main}>
+        {children}
+      </View>
+      {isMobile && currentView !== 'editor' && currentView !== 'reflow' && <BottomNav />}
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#0a0a0a',
+    backgroundColor: theme.colors.bg,
   },
   sidebar: {
     width: 260,
     borderRightWidth: 1,
-    borderRightColor: 'rgba(255,255,255,0.1)',
+    borderRightColor: theme.colors.border,
     flexDirection: 'column',
+    backgroundColor: theme.colors.bgAlt,
   },
   header: {
     padding: 24,
+    borderBottomWidth: 1,
+    borderBottomColor: theme.colors.border,
   },
   logoContainer: {
     flexDirection: 'row',
@@ -166,13 +170,15 @@ const styles = StyleSheet.create({
   },
   title: {
     fontSize: 20,
-    fontWeight: 'bold',
-    color: '#fff',
+    fontWeight: '800',
+    color: theme.colors.text,
     letterSpacing: -0.5,
+    fontFamily: 'PDFabMontserrat',
   },
   nav: {
     flex: 1,
     paddingHorizontal: 16,
+    paddingTop: 18,
   },
   navItem: {
     flexDirection: 'row',
@@ -180,33 +186,34 @@ const styles = StyleSheet.create({
     gap: 12,
     paddingHorizontal: 16,
     paddingVertical: 12,
-    borderRadius: 12,
-    marginBottom: 4,
+    borderRadius: 16,
+    marginBottom: 8,
+    borderWidth: 1,
+    borderColor: 'transparent',
   },
   navItemActive: {
-    backgroundColor: '#ec6400',
+    backgroundColor: theme.colors.accentSoft,
+    borderColor: theme.colors.accentBorder,
   },
   navLabel: {
     fontSize: 14,
-    color: 'rgba(255,255,255,0.6)',
-    fontWeight: '500',
+    color: theme.colors.textMuted,
+    fontWeight: '600',
   },
   navLabelActive: {
-    color: '#fff',
-    fontWeight: '600',
+    color: theme.colors.text,
+    fontWeight: '700',
   },
   footer: {
     padding: 16,
     borderTopWidth: 1,
-    borderTopColor: 'rgba(255,255,255,0.1)',
+    borderTopColor: theme.colors.border,
   },
   userCard: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
     padding: 12,
-    backgroundColor: 'rgba(255,255,255,0.05)',
-    borderRadius: 16,
   },
   avatar: {
     width: 32,
@@ -217,7 +224,7 @@ const styles = StyleSheet.create({
     width: 32,
     height: 32,
     borderRadius: 16,
-    backgroundColor: 'rgba(255,255,255,0.1)',
+    backgroundColor: theme.colors.surfaceSoft,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -227,27 +234,29 @@ const styles = StyleSheet.create({
   userName: {
     fontSize: 13,
     fontWeight: '600',
-    color: '#fff',
+    color: theme.colors.text,
   },
   userPlan: {
     fontSize: 9,
-    color: 'rgba(255,255,255,0.4)',
+    color: theme.colors.textSoft,
     fontWeight: 'bold',
     letterSpacing: 1,
     marginTop: 2,
   },
   logoutButton: {
-    padding: 4,
+    padding: 8,
+    borderRadius: 10,
+    backgroundColor: theme.colors.bgAlt,
   },
   main: {
     flex: 1,
+    backgroundColor: theme.colors.bg,
   },
   bottomNav: {
     flexDirection: 'row',
-    backgroundColor: '#0a0a0a',
+    backgroundColor: theme.colors.bgAlt,
     borderTopWidth: 1,
-    borderTopColor: 'rgba(255,255,255,0.1)',
-    paddingBottom: Platform.OS === 'ios' ? 20 : 10,
+    borderTopColor: theme.colors.border,
     paddingTop: 10,
   },
   bottomNavItem: {
@@ -257,11 +266,11 @@ const styles = StyleSheet.create({
   },
   bottomNavLabel: {
     fontSize: 10,
-    color: 'rgba(255,255,255,0.4)',
+    color: theme.colors.textMuted,
     fontWeight: 'bold',
     letterSpacing: 0.5,
   },
   bottomNavLabelActive: {
-    color: '#fff',
+    color: theme.colors.accentStrong,
   },
 });

@@ -1,8 +1,11 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, ActivityIndicator, Dimensions } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, ActivityIndicator, Dimensions, Platform } from 'react-native';
 import { useStore } from '../store/useStore';
 import { ChevronLeft, Type, ZoomIn, ZoomOut, FileText } from 'lucide-react-native';
 import * as pdfjs from 'pdfjs-dist';
+import { theme } from '../theme';
+import NeumorphicButton from './NeumorphicButton';
+import NeumorphicView from './NeumorphicView';
 
 // Configure PDF.js worker
 if (typeof window !== 'undefined' && 'pdfjsLib' in window) {
@@ -58,48 +61,48 @@ export default function Reflow({ setView }: ReflowProps) {
     <View style={styles.container}>
       <View style={styles.header}>
         <View style={styles.headerLeft}>
-          <TouchableOpacity onPress={() => setView('editor')} style={styles.backButton}>
-            <ChevronLeft size={24} color="#fff" />
-          </TouchableOpacity>
+          <NeumorphicButton radius={12} onPress={() => setView('editor')} layerStyle={styles.backButton}>
+            <ChevronLeft size={24} color={theme.colors.text} />
+          </NeumorphicButton>
           <View>
             <Text style={styles.title} numberOfLines={1}>{currentDocument?.title}</Text>
             <Text style={styles.subtitle}>REFLOWABLE TEXT MODE</Text>
           </View>
         </View>
         
-        <View style={styles.controls}>
-          <TouchableOpacity onPress={() => setFontSize(prev => Math.max(12, prev - 2))} style={styles.controlBtn}>
-            <ZoomOut size={18} color="#fff" />
-          </TouchableOpacity>
+        <NeumorphicView radius={12} style={styles.controls}>
+          <NeumorphicButton radius={10} onPress={() => setFontSize(prev => Math.max(12, prev - 2))} layerStyle={styles.controlBtn}>
+            <ZoomOut size={18} color={theme.colors.text} />
+          </NeumorphicButton>
           <View style={styles.fontSizeBadge}>
             <Text style={styles.fontSizeText}>{fontSize}</Text>
           </View>
-          <TouchableOpacity onPress={() => setFontSize(prev => Math.min(32, prev + 2))} style={styles.controlBtn}>
-            <ZoomIn size={18} color="#fff" />
-          </TouchableOpacity>
-        </View>
+          <NeumorphicButton radius={10} onPress={() => setFontSize(prev => Math.min(32, prev + 2))} layerStyle={styles.controlBtn}>
+            <ZoomIn size={18} color={theme.colors.text} />
+          </NeumorphicButton>
+        </NeumorphicView>
       </View>
 
       <ScrollView contentContainerStyle={styles.scrollContent}>
         {loading ? (
           <View style={styles.loading}>
-            <ActivityIndicator color="#fff" />
+            <ActivityIndicator color={theme.colors.text} />
             <Text style={styles.loadingText}>EXTRACTING TEXT...</Text>
           </View>
         ) : error ? (
-          <View style={styles.error}>
-            <FileText size={48} color="rgba(255,255,255,0.1)" />
+          <View style={styles.errorContainer}>
+            <FileText size={48} color={theme.colors.textSoft} />
             <Text style={styles.errorText}>{error}</Text>
           </View>
         ) : (
           pages.map((page, i) => (
-            <View key={i} style={styles.page}>
+            <NeumorphicView key={i} radius={18} style={styles.page}>
               <View style={styles.pageHeader}>
                 <Text style={styles.pageNumber}>PAGE {i + 1}</Text>
                 <View style={styles.pageLine} />
               </View>
               <Text style={[styles.text, { fontSize }]}>{page}</Text>
-            </View>
+            </NeumorphicView>
           ))
         )}
       </ScrollView>
@@ -107,10 +110,20 @@ export default function Reflow({ setView }: ReflowProps) {
   );
 }
 
+const neuShadow = Platform.OS === 'web'
+  ? { boxShadow: `6px 6px 12px ${theme.neu.colors.darkShadow}, -6px -6px 12px ${theme.neu.colors.lightShadow}` } as any
+  : {
+      shadowColor: '#000',
+      shadowOffset: { width: 5, height: 5 },
+      shadowOpacity: 0.45,
+      shadowRadius: 10,
+      elevation: 8,
+    };
+
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#0a0a0a',
+    backgroundColor: theme.colors.bg,
     paddingTop: 60,
   },
   header: {
@@ -129,19 +142,17 @@ const styles = StyleSheet.create({
   backButton: {
     width: 40,
     height: 40,
-    backgroundColor: 'rgba(255,255,255,0.05)',
-    borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
   },
   title: {
-    color: '#fff',
+    color: theme.colors.text,
     fontSize: 16,
     fontWeight: 'bold',
     maxWidth: width * 0.4,
   },
   subtitle: {
-    color: 'rgba(255,255,255,0.4)',
+    color: theme.colors.textSoft,
     fontSize: 10,
     fontWeight: 'bold',
     letterSpacing: 1,
@@ -150,8 +161,6 @@ const styles = StyleSheet.create({
   controls: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: 'rgba(255,255,255,0.05)',
-    borderRadius: 12,
     padding: 5,
     gap: 5,
   },
@@ -165,7 +174,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
   },
   fontSizeText: {
-    color: '#fff',
+    color: theme.colors.text,
     fontSize: 12,
     fontWeight: 'bold',
   },
@@ -179,26 +188,27 @@ const styles = StyleSheet.create({
     paddingTop: 100,
   },
   loadingText: {
-    color: 'rgba(255,255,255,0.4)',
+    color: theme.colors.textSoft,
     fontSize: 10,
     fontWeight: 'bold',
     letterSpacing: 2,
     marginTop: 15,
   },
-  error: {
+  errorContainer: {
     alignItems: 'center',
     justifyContent: 'center',
     paddingTop: 100,
   },
   errorText: {
-    color: 'rgba(255,255,255,0.4)',
+    color: theme.colors.textMuted,
     fontSize: 14,
     textAlign: 'center',
     marginTop: 20,
     maxWidth: 250,
   },
   page: {
-    marginBottom: 40,
+    marginBottom: 30,
+    padding: 24,
   },
   pageHeader: {
     flexDirection: 'row',
@@ -207,7 +217,7 @@ const styles = StyleSheet.create({
     marginBottom: 20,
   },
   pageNumber: {
-    color: 'rgba(255,255,255,0.2)',
+    color: theme.colors.textSoft,
     fontSize: 10,
     fontWeight: 'bold',
     letterSpacing: 1,
@@ -215,10 +225,10 @@ const styles = StyleSheet.create({
   pageLine: {
     flex: 1,
     height: 1,
-    backgroundColor: 'rgba(255,255,255,0.05)',
+    backgroundColor: theme.colors.border,
   },
   text: {
-    color: '#fff',
+    color: theme.colors.text,
     lineHeight: 28,
     textAlign: 'justify',
   },

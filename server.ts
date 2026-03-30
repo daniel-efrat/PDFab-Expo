@@ -58,17 +58,42 @@ async function startServer() {
   // Background Removal (Mocked)
   app.post('/api/remove-bg', async (req, res) => {
     try {
-      const { imageBase64 } = req.body;
+      const { imageBase64, mimeType } = req.body;
       if (!imageBase64) {
         return res.status(400).json({ error: 'Missing image data' });
       }
 
-      // In a real app, we'd call withoutBG or similar here.
-      // For now, we'll just return the original image or a simple mock.
-      // If WITHOUT_BG_API_KEY is present, we could implement it.
-      
-      res.json({ imageBase64 }); // Returning original for now
+      const apiKey = process.env.WITHOUT_BG_API_KEY;
+      if (!apiKey) {
+        return res.json({ imageBase64, mimeType: mimeType || 'image/png' });
+      }
+
+      const response = await fetch('https://api.remove.bg/v1.0/removebg', {
+        method: 'POST',
+        headers: {
+          'X-Api-Key': apiKey,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          image_base64: imageBase64,
+          size: 'auto',
+          format: 'png',
+        }),
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(errorText || `remove.bg failed with status ${response.status}`);
+      }
+
+      const imageBuffer = await response.arrayBuffer();
+      const resultBase64 = Buffer.from(imageBuffer).toString('base64');
+      res.json({
+        imageBase64: resultBase64,
+        mimeType: 'image/png',
+      });
     } catch (error: any) {
+      console.error('Remove bg error:', error);
       res.status(500).json({ error: error.message });
     }
   });

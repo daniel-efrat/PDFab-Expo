@@ -1,15 +1,18 @@
-import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, FlatList, TextInput, ActivityIndicator, useWindowDimensions, Modal } from 'react-native';
+import React, { useEffect, useMemo, useState } from 'react';
+import { View, Text, StyleSheet, TouchableOpacity, FlatList, TextInput, ActivityIndicator, useWindowDimensions, Modal, ScrollView, ImageBackground } from 'react-native';
 import { collection, query, where, orderBy, onSnapshot, addDoc, updateDoc, doc, deleteDoc } from 'firebase/firestore';
 import { ref, getDownloadURL } from 'firebase/storage';
 import { db, storage, auth } from '../firebase';
 import { useStore } from '../store/useStore';
 import { PDFDocument } from '../types';
-import { FileText, Plus, Search, Star, Trash2, Clock, Zap, Scan, LogOut, User as UserIcon, Edit2, X, Check } from 'lucide-react-native';
+import { FileText, Plus, Search, Star, Trash2, Clock, Zap, Scan, LogOut, User as UserIcon, Edit2, X, Check, ChevronLeft, MoreVertical, File } from 'lucide-react-native';
 import * as DocumentPicker from 'expo-document-picker';
 import { formatDate } from '../lib/utils';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { uploadFileToFirebase } from '../lib/firebase-upload';
+import { theme } from '../theme';
+import NeumorphicView from './NeumorphicView';
+import NeumorphicButton from './NeumorphicButton';
 
 interface DashboardProps {
   setView: (view: any) => void;
@@ -101,6 +104,36 @@ export default function Dashboard({ setView }: DashboardProps) {
     return matchesSearch && !doc.isTrashed;
   });
 
+  const stats = useMemo(() => {
+    const activeDocuments = documents.filter((item) => !item.isTrashed);
+    const starredDocuments = activeDocuments.filter((item) => item.isStarred);
+    const trashedDocuments = documents.filter((item) => item.isTrashed);
+
+    return [
+      {
+        label: 'Total Documents',
+        value: activeDocuments.length.toString(),
+        icon: FileText,
+        tint: theme.colors.info,
+        tintSoft: theme.colors.infoSoft,
+      },
+      {
+        label: 'Starred Files',
+        value: starredDocuments.length.toString(),
+        icon: Star,
+        tint: theme.colors.warning,
+        tintSoft: theme.colors.warningSoft,
+      },
+      {
+        label: 'In Trash',
+        value: trashedDocuments.length.toString(),
+        icon: Trash2,
+        tint: theme.colors.danger,
+        tintSoft: theme.colors.dangerSoft,
+      },
+    ];
+  }, [documents]);
+
   const handleOpen = (doc: PDFDocument) => {
     setCurrentDocument(doc);
     setView('editor');
@@ -139,110 +172,163 @@ export default function Dashboard({ setView }: DashboardProps) {
   };
 
   const renderItem = ({ item }: { item: PDFDocument }) => (
-    <TouchableOpacity 
-      style={styles.card} 
+    <TouchableOpacity
+      activeOpacity={0.7}
+      style={styles.card}
       onPress={() => handleOpen(item)}
     >
       <View style={styles.cardPreview}>
-        <FileText size={40} color="rgba(255,255,255,0.1)" />
+        <FileText size={24} color={theme.colors.accentStrong} />
       </View>
       <View style={styles.cardInfo}>
         <Text style={styles.cardTitle} numberOfLines={1}>{item.title}</Text>
-        <View style={styles.cardMeta}>
-          <Clock size={10} color="rgba(255,255,255,0.4)" />
-          <Text style={styles.cardDate}>{formatDate(item.updatedAt)}</Text>
-        </View>
+        <Text style={styles.cardDate}>{formatDate(item.updatedAt)} • PDF</Text>
       </View>
       <View style={styles.cardActions}>
-        <TouchableOpacity onPress={() => toggleStar(item.id, item.isStarred)}>
-          <Star size={18} color={item.isStarred ? '#fbbf24' : 'rgba(255,255,255,0.2)'} fill={item.isStarred ? '#fbbf24' : 'transparent'} />
+        <TouchableOpacity 
+          style={styles.cardActionIcon}
+          onPress={(e) => { e.stopPropagation(); toggleStar(item.id, item.isStarred); }}
+        >
+          <Star size={20} color={item.isStarred ? theme.colors.warning : theme.colors.textSoft} fill={item.isStarred ? theme.colors.warning : 'transparent'} />
         </TouchableOpacity>
-        <TouchableOpacity onPress={() => { setEditingDoc(item); setEditName(item.title); }}>
-          <Edit2 size={18} color="rgba(255,255,255,0.2)" />
-        </TouchableOpacity>
-        <TouchableOpacity onPress={() => moveToTrash(item.id)}>
-          <Trash2 size={18} color="rgba(255,255,255,0.2)" />
+        <TouchableOpacity 
+          style={styles.cardActionIcon}
+          onPress={(e) => { e.stopPropagation(); setEditingDoc(item); setEditName(item.title); }}
+        >
+          <MoreVertical size={20} color={theme.colors.textSoft} />
         </TouchableOpacity>
       </View>
     </TouchableOpacity>
   );
 
-  return (
-    <SafeAreaView style={styles.container} edges={['top']}>
-      {/* Header */}
+  const renderHeader = () => (
+    <View style={styles.headerSpacer}>
       <View style={styles.header}>
-        <View style={styles.headerContent}>
-          <Text style={styles.welcome}>Welcome back, {user?.displayName?.split(' ')[0] || 'User'}</Text>
-          <Text style={styles.headerSubtitle}>YOUR PDF WORKSPACE</Text>
-        </View>
-        <TouchableOpacity
-          onPress={() => auth.signOut()}
-          style={[styles.logoutButton, isMobile && styles.logoutButtonMobile]}
-        >
-          <LogOut size={18} color="#fff" />
-          {isMobile && <Text style={styles.logoutLabel}>LOG OUT</Text>}
+        <TouchableOpacity style={styles.menuIcon}>
+          <Plus size={24} color={theme.colors.accentStrong} />
+        </TouchableOpacity>
+        <Text style={styles.appLogo}>PDFab Workspace</Text>
+        <TouchableOpacity style={styles.searchHeaderIcon}>
+          <Search size={24} color={theme.colors.accentStrong} />
         </TouchableOpacity>
       </View>
 
-      {/* Search & Upload */}
-      <View style={styles.searchBar}>
+      <View style={styles.searchBarContainer}>
         <View style={styles.searchInputWrapper}>
-          <Search size={16} color="rgba(255,255,255,0.2)" style={styles.searchIcon} />
+          <Search size={20} color={theme.colors.textSoft} style={styles.searchIcon} />
           <TextInput
             style={styles.searchInput}
-            placeholder="Search documents..."
-            placeholderTextColor="rgba(255,255,255,0.2)"
+            placeholder="Search your workspace..."
+            placeholderTextColor={theme.colors.textSoft}
             value={search}
             onChangeText={setSearch}
           />
         </View>
-        <TouchableOpacity style={styles.uploadButton} onPress={handleUpload} disabled={uploading}>
-          {uploading ? <ActivityIndicator color="#000" size="small" /> : <Plus size={20} color="#000" />}
+      </View>
+
+      <View style={styles.sectionHeader}>
+        <Text style={styles.sectionTitle}>Summary</Text>
+        <TouchableOpacity>
+          <Text style={styles.detailsLink}>Details</Text>
         </TouchableOpacity>
       </View>
 
-      {/* Quick Actions */}
-      <View style={styles.quickActions}>
-        <TouchableOpacity style={styles.actionCard} onPress={() => setView('scanner')}>
-          <View style={styles.actionIcon}>
-            <Scan size={20} color="#fff" />
+      <View style={styles.bentoGrid}>
+        <View style={[styles.bentoSmall, { width: '100%', marginBottom: 16 }]}>
+          <View>
+            <Text style={styles.bentoLabel}>Total Documents</Text>
+            <Text style={styles.bentoValueLarge}>{documents.filter(d => !d.isTrashed).length}</Text>
           </View>
-          <Text style={styles.actionLabel}>Scan to PDF</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.actionCard} onPress={() => setView('transcription')}>
-          <View style={styles.actionIcon}>
-            <Zap size={20} color="#fff" />
+          <View style={styles.bentoIconWrapper}>
+            <FileText size={24} color="#fff" />
           </View>
-          <Text style={styles.actionLabel}>AI Transcribe</Text>
-        </TouchableOpacity>
+        </View>
+        <View style={styles.bentoRow}>
+          <View style={styles.bentoSmall}>
+            <Star size={18} color={theme.colors.warning} fill={theme.colors.warning} style={{ marginBottom: 12 }} />
+            <Text style={styles.bentoLabel}>Starred Files</Text>
+            <Text style={styles.bentoValue}>{documents.filter(d => d.isStarred && !d.isTrashed).length}</Text>
+          </View>
+          <View style={styles.bentoSmall}>
+            <Trash2 size={18} color={theme.colors.textSoft} style={{ marginBottom: 12 }} />
+            <Text style={styles.bentoLabel}>In Trash</Text>
+            <Text style={styles.bentoValue}>{documents.filter(d => d.isTrashed).length}</Text>
+          </View>
+        </View>
       </View>
 
-      {/* Tabs */}
+      <View style={styles.sectionHeader}>
+        <Text style={styles.sectionTitle}>Quick Actions</Text>
+      </View>
+
+      <ScrollView 
+        horizontal 
+        showsHorizontalScrollIndicator={false} 
+        contentContainerStyle={styles.actionsCarousel}
+      >
+        <TouchableOpacity style={styles.actionCardMain} onPress={() => setView('scanner')} activeOpacity={0.9}>
+          <ImageBackground 
+            source={require('../../assets/gradient.png')} 
+            style={styles.actionCardGradient}
+            resizeMode="cover"
+          >
+            <View style={styles.actionIconWrapper}>
+              <Scan size={24} color="#fff" />
+            </View>
+            <Text style={styles.actionLabelMain}>Scan to PDF</Text>
+            <Text style={styles.actionDescMain}>Convert physical to digital instantly</Text>
+          </ImageBackground>
+        </TouchableOpacity>
+
+        <TouchableOpacity style={styles.actionCardSmall} onPress={() => setView('transcription')}>
+          <Zap size={20} color={theme.colors.accentStrong} style={{ marginBottom: 12 }} />
+          <Text style={styles.actionLabelSmall}>AI Transcribe</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity style={styles.actionCardSmall} onPress={() => setView('signatures')}>
+          <Edit2 size={20} color={theme.colors.accentStrong} style={{ marginBottom: 12 }} />
+          <Text style={styles.actionLabelSmall}>E-Sign</Text>
+        </TouchableOpacity>
+      </ScrollView>
+
       <View style={styles.tabs}>
         <TouchableOpacity onPress={() => setFilter('all')} style={[styles.tab, filter === 'all' && styles.activeTab]}>
-          <Text style={[styles.tabText, filter === 'all' && styles.activeTabText]}>ALL FILES</Text>
+          <Text style={[styles.tabText, filter === 'all' && styles.activeTabText]}>All Files</Text>
         </TouchableOpacity>
         <TouchableOpacity onPress={() => setFilter('starred')} style={[styles.tab, filter === 'starred' && styles.activeTab]}>
-          <Text style={[styles.tabText, filter === 'starred' && styles.activeTabText]}>STARRED</Text>
+          <Text style={[styles.tabText, filter === 'starred' && styles.activeTabText]}>Starred</Text>
         </TouchableOpacity>
         <TouchableOpacity onPress={() => setFilter('trash')} style={[styles.tab, filter === 'trash' && styles.activeTab]}>
-          <Text style={[styles.tabText, filter === 'trash' && styles.activeTabText]}>TRASH</Text>
+          <Text style={[styles.tabText, filter === 'trash' && styles.activeTabText]}>Trash</Text>
         </TouchableOpacity>
       </View>
+    </View>
+  );
 
-      {/* List */}
+  return (
+    <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
       <FlatList
+        style={styles.list}
         data={filteredDocs}
         renderItem={renderItem}
         keyExtractor={item => item.id}
+        ListHeaderComponent={renderHeader}
         contentContainerStyle={styles.listContent}
         ListEmptyComponent={
           <View style={styles.empty}>
-            <FileText size={48} color="rgba(255,255,255,0.05)" />
+            <FileText size={48} color={theme.colors.textSoft} />
             <Text style={styles.emptyText}>No documents found</Text>
           </View>
         }
       />
+
+      <TouchableOpacity 
+        style={styles.fab}
+        onPress={handleUpload}
+        activeOpacity={0.8}
+      >
+        {uploading ? <ActivityIndicator color="#0E1320" /> : <Plus size={32} color="#0E1320" />}
+      </TouchableOpacity>
 
       {/* Rename Modal */}
       <Modal
@@ -252,38 +338,42 @@ export default function Dashboard({ setView }: DashboardProps) {
         onRequestClose={() => setEditingDoc(null)}
       >
         <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
+          <NeumorphicView radius={24} style={styles.modalContent}>
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}>Rename Document</Text>
               <TouchableOpacity onPress={() => setEditingDoc(null)}>
-                <X size={20} color="rgba(255,255,255,0.4)" />
+                <X size={20} color={theme.colors.textMuted} />
               </TouchableOpacity>
             </View>
             
-            <TextInput
-              style={styles.renameInput}
-              value={editName}
-              onChangeText={setEditName}
-              placeholder="Enter new name..."
-              placeholderTextColor="rgba(255,255,255,0.2)"
-              autoFocus
-            />
+            <NeumorphicView pressed radius={14} style={{ marginBottom: 25 }}>
+              <TextInput
+                style={styles.renameInput}
+                value={editName}
+                onChangeText={setEditName}
+                placeholder="Enter new name..."
+                placeholderTextColor={theme.colors.textSoft}
+                autoFocus
+              />
+            </NeumorphicView>
             
             <View style={styles.modalButtons}>
-              <TouchableOpacity 
-                style={[styles.modalButton, styles.cancelButton]} 
+              <NeumorphicButton 
+                radius={12}
+                layerStyle={[styles.modalButton, styles.cancelButton]} 
                 onPress={() => setEditingDoc(null)}
               >
                 <Text style={styles.cancelButtonText}>Cancel</Text>
-              </TouchableOpacity>
-              <TouchableOpacity 
-                style={[styles.modalButton, styles.saveButton]} 
+              </NeumorphicButton>
+              <NeumorphicButton 
+                radius={12}
+                layerStyle={[styles.modalButton, styles.saveButton]} 
                 onPress={handleRename}
               >
                 <Text style={styles.saveButtonText}>Save Changes</Text>
-              </TouchableOpacity>
+              </NeumorphicButton>
             </View>
-          </View>
+          </NeumorphicView>
         </View>
       </Modal>
 
@@ -291,7 +381,7 @@ export default function Dashboard({ setView }: DashboardProps) {
       {toast && (
         <View style={[styles.toast, toast.type === 'error' && styles.toastError]}>
           <View style={styles.toastIcon}>
-            {toast.type === 'success' ? <Check size={14} color="#000" /> : <X size={14} color="#fff" />}
+            {toast.type === 'success' ? <Check size={14} color={theme.colors.white} /> : <X size={14} color={theme.colors.white} />}
           </View>
           <Text style={[styles.toastText, toast.type === 'error' && styles.toastTextError]}>
             {toast.message}
@@ -305,272 +395,293 @@ export default function Dashboard({ setView }: DashboardProps) {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#0a0a0a',
+    backgroundColor: theme.colors.bg,
+  },
+  list: {
+    flex: 1,
+  },
+  headerSpacer: {
+    paddingTop: 12,
   },
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingHorizontal: 25,
-    marginBottom: 20,
-    marginTop: 10,
+    paddingHorizontal: 24,
+    marginBottom: 24,
   },
-  headerContent: {
-    flex: 1,
-    paddingRight: 12,
+  menuIcon: {
+    padding: 8,
   },
-  welcome: {
-    color: '#fff',
+  appLogo: {
+    color: theme.colors.accentStrong,
     fontSize: 20,
-    fontWeight: 'bold',
+    fontWeight: '900',
+    letterSpacing: -0.5,
+    fontFamily: 'PDFabMontserrat',
   },
-  headerSubtitle: {
-    color: 'rgba(255,255,255,0.4)',
-    fontSize: 10,
-    fontWeight: 'bold',
-    letterSpacing: 1,
-    marginTop: 2,
+  searchHeaderIcon: {
+    padding: 8,
   },
-  logoutButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 12,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: 'rgba(255,255,255,0.05)',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.08)',
-  },
-  logoutButtonMobile: {
-    width: 'auto',
-    flexDirection: 'row',
-    gap: 8,
-    paddingHorizontal: 14,
-  },
-  logoutLabel: {
-    color: '#fff',
-    fontSize: 11,
-    fontWeight: 'bold',
-    letterSpacing: 0.8,
-  },
-  searchBar: {
-    flexDirection: 'row',
-    paddingHorizontal: 25,
-    gap: 12,
-    marginBottom: 20,
+  searchBarContainer: {
+    paddingHorizontal: 24,
+    marginBottom: 32,
   },
   searchInputWrapper: {
-    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: 'rgba(255,255,255,0.05)',
-    borderRadius: 12,
-    paddingHorizontal: 15,
-    height: 50,
+    backgroundColor: theme.colors.surfaceAlt,
+    borderRadius: 16,
+    paddingHorizontal: 16,
+    height: 56,
   },
   searchIcon: {
-    marginRight: 10,
+    marginRight: 12,
   },
   searchInput: {
     flex: 1,
-    color: '#fff',
-    fontSize: 14,
+    color: theme.colors.text,
+    fontSize: 15,
+    fontWeight: '500',
   },
-  uploadButton: {
-    width: 50,
-    height: 50,
-    backgroundColor: '#fff',
-    borderRadius: 12,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  quickActions: {
+  sectionHeader: {
     flexDirection: 'row',
-    paddingHorizontal: 25,
-    gap: 15,
-    marginBottom: 30,
+    justifyContent: 'space-between',
+    alignItems: 'flex-end',
+    paddingHorizontal: 24,
+    marginBottom: 16,
   },
-  actionCard: {
+  sectionTitle: {
+    color: theme.colors.text,
+    fontSize: 22,
+    fontWeight: '800',
+    letterSpacing: -0.5,
+  },
+  detailsLink: {
+    color: theme.colors.accentStrong,
+    fontSize: 12,
+    fontWeight: '800',
+    textTransform: 'uppercase',
+    letterSpacing: 1,
+  },
+  bentoGrid: {
+    paddingHorizontal: 24,
+    marginBottom: 32,
+  },
+  bentoRow: {
+    flexDirection: 'row',
+    gap: 16,
+  },
+  bentoSmall: {
     flex: 1,
-    backgroundColor: 'rgba(255,255,255,0.05)',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.1)',
+    backgroundColor: theme.colors.surface,
     borderRadius: 20,
-    padding: 20,
+    padding: 24,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
     alignItems: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.03)',
   },
-  actionIcon: {
-    width: 40,
-    height: 40,
-    backgroundColor: 'rgba(255,255,255,0.1)',
+  bentoLabel: {
+    color: theme.colors.textSoft,
+    fontSize: 12,
+    fontWeight: '600',
+    marginBottom: 4,
+  },
+  bentoValueLarge: {
+    color: theme.colors.white,
+    fontSize: 36,
+    fontWeight: '800',
+  },
+  bentoValue: {
+    color: theme.colors.white,
+    fontSize: 28,
+    fontWeight: '800',
+  },
+  bentoIconWrapper: {
+    width: 48,
+    height: 48,
     borderRadius: 12,
+    backgroundColor: 'rgba(255,255,255,0.08)',
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 12,
   },
-  actionLabel: {
-    color: '#fff',
-    fontSize: 12,
-    fontWeight: 'bold',
+  actionsCarousel: {
+    paddingHorizontal: 24,
+    gap: 16,
+    paddingBottom: 32,
+  },
+  actionCardMain: {
+    width: 280,
+    borderRadius: 24,
+    overflow: 'hidden',
+  },
+  actionCardGradient: {
+    padding: 24,
+    flex: 1,
+  },
+  actionIconWrapper: {
+    width: 48,
+    height: 48,
+    borderRadius: 12,
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 16,
+  },
+  actionLabelMain: {
+    color: '#0E1320',
+    fontSize: 20,
+    fontWeight: '900',
+    marginBottom: 4,
+  },
+  actionDescMain: {
+    color: 'rgba(14,19,32,0.7)',
+    fontSize: 14,
+    fontWeight: '500',
+  },
+  actionCardSmall: {
+    width: 160,
+    backgroundColor: theme.colors.surfaceAlt,
+    borderRadius: 24,
+    padding: 24,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.05)',
+  },
+  actionLabelSmall: {
+    color: theme.colors.text,
+    fontSize: 16,
+    fontWeight: '800',
   },
   tabs: {
     flexDirection: 'row',
-    paddingHorizontal: 25,
+    paddingHorizontal: 24,
+    gap: 24,
     borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255,255,255,0.1)',
-    marginBottom: 20,
+    borderBottomColor: 'rgba(255,255,255,0.05)',
+    marginBottom: 24,
   },
   tab: {
-    paddingVertical: 15,
-    marginRight: 25,
+    paddingBottom: 12,
     borderBottomWidth: 2,
     borderBottomColor: 'transparent',
   },
   activeTab: {
-    borderBottomColor: '#fff',
+    borderBottomColor: theme.colors.accentStrong,
   },
   tabText: {
-    color: 'rgba(255,255,255,0.4)',
-    fontSize: 12,
-    fontWeight: 'bold',
-    letterSpacing: 1,
+    color: theme.colors.textSoft,
+    fontSize: 14,
+    fontWeight: '700',
   },
   activeTabText: {
-    color: '#fff',
+    color: theme.colors.accentStrong,
   },
   listContent: {
-    paddingHorizontal: 25,
-    paddingBottom: 40,
+    paddingBottom: 120,
   },
   card: {
     flexDirection: 'row',
-    backgroundColor: 'rgba(255,255,255,0.05)',
-    borderRadius: 16,
-    padding: 12,
-    marginBottom: 15,
+    backgroundColor: theme.colors.surfaceAlt,
+    marginHorizontal: 24,
+    padding: 16,
+    borderRadius: 20,
+    marginBottom: 12,
     alignItems: 'center',
+    gap: 16,
   },
   cardPreview: {
-    width: 60,
-    height: 80,
-    backgroundColor: 'rgba(255,255,255,0.05)',
-    borderRadius: 8,
+    width: 48,
+    height: 48,
+    borderRadius: 12,
+    backgroundColor: theme.colors.surface,
     alignItems: 'center',
     justifyContent: 'center',
-    marginRight: 15,
   },
   cardInfo: {
     flex: 1,
   },
   cardTitle: {
-    color: '#fff',
-    fontSize: 14,
-    fontWeight: 'bold',
-    marginBottom: 4,
-  },
-  cardMeta: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 5,
+    color: theme.colors.text,
+    fontSize: 15,
+    fontWeight: '800',
+    marginBottom: 2,
   },
   cardDate: {
     color: 'rgba(255,255,255,0.4)',
-    fontSize: 10,
-    fontWeight: 'bold',
+    fontSize: 12,
+    fontWeight: '500',
   },
   cardActions: {
-    gap: 15,
+    flexDirection: 'row',
+    gap: 8,
+  },
+  cardActionIcon: {
+    padding: 8,
+  },
+  fab: {
+    position: 'absolute',
+    right: 24,
+    bottom: 110,
+    width: 64,
+    height: 64,
+    borderRadius: 20,
+    backgroundColor: theme.colors.accentStrong,
     alignItems: 'center',
-    paddingLeft: 10,
+    justifyContent: 'center',
+    shadowColor: theme.colors.accentStrong,
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.4,
+    shadowRadius: 16,
+    elevation: 8,
   },
   empty: {
     alignItems: 'center',
     justifyContent: 'center',
-    paddingTop: 100,
+    paddingTop: 60,
   },
   emptyText: {
-    color: 'rgba(255,255,255,0.2)',
+    color: theme.colors.textSoft,
     fontSize: 14,
-    fontWeight: 'bold',
-    marginTop: 15,
-    letterSpacing: 1,
+    fontWeight: '800',
+    marginTop: 16,
     textTransform: 'uppercase',
+    letterSpacing: 1,
   },
-  // Toast Styles
-  toast: {
-    position: 'absolute',
-    top: 60,
-    left: 20,
-    right: 20,
-    backgroundColor: '#fff',
-    borderRadius: 12,
-    padding: 15,
-    flexDirection: 'row',
-    alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.3,
-    shadowRadius: 20,
-    elevation: 10,
-    zIndex: 1000,
-  },
-  toastError: {
-    backgroundColor: '#ef4444',
-  },
-  toastIcon: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    backgroundColor: 'rgba(0,0,0,0.05)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 12,
-  },
-  toastText: {
-    color: '#000',
-    fontSize: 14,
-    fontWeight: 'bold',
-  },
-  toastTextError: {
-    color: '#fff',
-  },
-  // Modal Styles
+  // Toast & Modal styles retained from original but adapted to new spacing
   modalOverlay: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.8)',
     justifyContent: 'center',
     alignItems: 'center',
-    padding: 20,
+    padding: 24,
   },
   modalContent: {
     width: '100%',
-    backgroundColor: '#1a1a1a',
+    padding: 24,
+    backgroundColor: theme.colors.surface,
     borderRadius: 24,
-    padding: 25,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.1)',
   },
   modalHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 20,
+    marginBottom: 24,
   },
   modalTitle: {
-    color: '#fff',
-    fontSize: 18,
-    fontWeight: 'bold',
+    color: theme.colors.text,
+    fontSize: 20,
+    fontWeight: '800',
   },
   renameInput: {
-    backgroundColor: 'rgba(255,255,255,0.05)',
-    borderRadius: 12,
-    height: 55,
-    paddingHorizontal: 15,
-    color: '#fff',
+    height: 56,
+    paddingHorizontal: 16,
+    color: theme.colors.text,
     fontSize: 16,
-    marginBottom: 25,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.1)',
+    backgroundColor: theme.colors.surfaceAlt,
+    borderRadius: 12,
+    marginBottom: 24,
   },
   modalButtons: {
     flexDirection: 'row',
@@ -587,14 +698,51 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255,255,255,0.05)',
   },
   saveButton: {
-    backgroundColor: '#fff',
+    backgroundColor: theme.colors.accentStrong,
   },
   cancelButtonText: {
-    color: 'rgba(255,255,255,0.4)',
-    fontWeight: 'bold',
+    color: theme.colors.textMuted,
+    fontWeight: '800',
   },
   saveButtonText: {
-    color: '#000',
-    fontWeight: 'bold',
+    color: '#0E1320',
+    fontWeight: '900',
+  },
+  toast: {
+    position: 'absolute',
+    top: 60,
+    left: 20,
+    right: 20,
+    backgroundColor: theme.colors.surfaceAlt,
+    borderRadius: 16,
+    padding: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.3,
+    shadowRadius: 20,
+    elevation: 10,
+    zIndex: 1000,
+  },
+  toastError: {
+    backgroundColor: theme.colors.danger,
+  },
+  toastIcon: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 12,
+  },
+  toastText: {
+    color: theme.colors.white,
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  toastTextError: {
+    color: theme.colors.white,
   },
 });

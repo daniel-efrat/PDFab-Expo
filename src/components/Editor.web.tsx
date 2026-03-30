@@ -11,11 +11,12 @@ pdfjs.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/$
 import { db } from '../firebase';
 import { doc, updateDoc } from 'firebase/firestore';
 import { savePdf } from '../lib/savePdf';
+import { theme } from '../theme';
 
 const SIDEBAR_WIDTH = 260;
 const FONT_FAMILIES = ['Inter', 'Georgia', 'Helvetica', 'Courier New', 'Times New Roman', 'Verdana'];
 const FONT_SIZES = [12, 14, 16, 18, 24, 32, 48];
-const TOOL_COLORS = ['#111827', '#000000', '#ef4444', '#ec6400', '#f59e0b', '#10b981', '#2563eb', '#7c3aed'];
+const TOOL_COLORS = ['#111827', '#000000', '#ef4444', theme.colors.accentStrong, '#f59e0b', '#10b981', '#2563eb', '#7c3aed'];
 
 let _annId = 0;
 const nextId = () => `ann_${Date.now()}_${++_annId}`;
@@ -237,10 +238,11 @@ export default function Editor({ setView }: EditorProps) {
       {isMobile && (
         <div style={{
           position: 'fixed', bottom: 0, left: 0, right: 0,
-          background: '#0a0a0a',
-          borderTop: '1px solid rgba(255,255,255,0.1)',
+          background: theme.colors.surface,
+          borderTop: 'none',
           paddingBottom: 'env(safe-area-inset-bottom, 0px)',
           zIndex: 100,
+          boxShadow: `0 -6px 14px ${theme.neu.colors.darkShadow}`,
         } as React.CSSProperties}>
           {/* Zoom strip */}
           <div style={{
@@ -287,10 +289,10 @@ export default function Editor({ setView }: EditorProps) {
                   onPress={tool.action || (() => setActiveTool(tool.id as any))}
                   style={{ alignItems: 'center', gap: 2, paddingHorizontal: 4 } as any}
                 >
-                  <Icon size={20} color={isActive ? '#ec6400' : 'rgba(255,255,255,0.5)'} />
+                  <Icon size={20} color={isActive ? theme.colors.accentStrong : theme.colors.textMuted} />
                   <Text style={{
                     fontSize: 9, fontWeight: '600',
-                    color: isActive ? '#ec6400' : 'rgba(255,255,255,0.4)',
+                    color: isActive ? theme.colors.accentStrong : theme.colors.textSoft,
                   } as any}>{tool.label}</Text>
                 </TouchableOpacity>
               );
@@ -319,8 +321,8 @@ export default function Editor({ setView }: EditorProps) {
         <div style={{
           position: 'fixed', bottom: 120, right: 30,
           display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8,
-          background: 'rgba(22,22,22,0.9)', borderRadius: 16, padding: '12px 10px',
-          border: '1px solid rgba(255,255,255,0.1)', backdropFilter: 'blur(10px)',
+          background: theme.colors.surface, borderRadius: 16, padding: '12px 10px',
+          boxShadow: `6px 6px 12px ${theme.neu.colors.darkShadow}, -6px -6px 12px ${theme.neu.colors.lightShadow}`,
         }}>
           <ZoomIn size={16} color="#fff" />
           <input type="range" min="0.3" max="3" step="0.01" value={zoom}
@@ -401,10 +403,8 @@ function ContextualToolMenu({
         maxWidth: isMobile ? 'none' : 420,
         padding: 16,
         borderRadius: 18,
-        border: '1px solid rgba(255,255,255,0.1)',
-        background: 'rgba(18,18,24,0.92)',
-        backdropFilter: 'blur(18px)',
-        boxShadow: '0 18px 40px rgba(0,0,0,0.35)',
+        background: theme.colors.surface,
+        boxShadow: `8px 8px 16px ${theme.neu.colors.darkShadow}, -8px -8px 16px ${theme.neu.colors.lightShadow}`,
       }}
     >
       <div style={{ display: 'flex', flexDirection: 'column', gap: 2, marginBottom: 14 }}>
@@ -1156,46 +1156,56 @@ function SignatureModal({ onConfirm, onCancel }: { onConfirm: (dataUrl: string) 
   return (
     <div style={{
       position: 'fixed', inset: 0,
-      background: 'rgba(0,0,0,0.7)',
+      background: 'rgba(9,12,20,0.85)',
       display: 'flex', alignItems: 'center', justifyContent: 'center',
-      zIndex: 100,
-      backdropFilter: 'blur(8px)',
+      zIndex: 200,
+      backdropFilter: 'blur(12px)',
     }}>
       <div style={{
-        background: '#1a1a2e',
-        borderRadius: 20,
-        padding: 24,
-        border: '1px solid rgba(255,255,255,0.1)',
-        boxShadow: '0 20px 60px rgba(0,0,0,0.5)',
-        width: 480,
+        background: theme.colors.surface,
+        borderRadius: 24,
+        padding: 28,
+        boxShadow: `12px 12px 24px ${theme.neu.colors.darkShadow}, -12px -12px 24px ${theme.neu.colors.lightShadow}`,
+        width: 500,
       }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-          <span style={{ color: '#fff', fontSize: 16, fontWeight: 'bold' }}>Draw Your Signature</span>
-          <button onClick={onCancel} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'rgba(255,255,255,0.5)', fontSize: 20 }}>✕</button>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+          <span style={{ color: theme.colors.text, fontSize: 18, fontWeight: 'bold' }}>Draw Your Signature</span>
+          <button onClick={onCancel} style={{ background: 'none', border: 'none', cursor: 'pointer', color: theme.colors.textSoft, fontSize: 22 }}>✕</button>
         </div>
-        <canvas
-          ref={canvasRef}
-          width={432}
-          height={160}
-          style={{
-            borderRadius: 12,
-            border: '2px dashed rgba(255,255,255,0.15)',
-            cursor: 'crosshair',
-            display: 'block',
-            width: '100%',
-          }}
-        />
-        <div style={{ display: 'flex', gap: 10, marginTop: 16, justifyContent: 'flex-end' }}>
+        <div style={{
+          boxShadow: theme.neu.shadowStyles.lightLayerInset.boxShadow,
+          borderRadius: 16,
+          padding: 4,
+          background: 'rgba(0,0,0,0.2)',
+          marginBottom: 20,
+        }}>
+          <canvas
+            ref={canvasRef}
+            width={444}
+            height={180}
+            style={{
+              borderRadius: 12,
+              cursor: 'crosshair',
+              display: 'block',
+              width: '100%',
+              background: '#fff',
+            }}
+          />
+        </div>
+        <div style={{ display: 'flex', gap: 14, justifyContent: 'flex-end' }}>
           <button onClick={handleClear} style={{
-            background: 'rgba(255,255,255,0.08)',
-            border: '1px solid rgba(255,255,255,0.15)',
-            borderRadius: 10, padding: '8px 20px',
-            color: '#fff', cursor: 'pointer', fontSize: 13,
+            background: theme.colors.surfaceSoft,
+            border: 'none',
+            borderRadius: 12, padding: '10px 24px',
+            color: theme.colors.text, cursor: 'pointer', fontSize: 14,
+            fontWeight: '600',
+            boxShadow: `4px 4px 8px ${theme.neu.colors.darkShadow}, -4px -4px 8px ${theme.neu.colors.lightShadow}`,
           }}>Clear</button>
           <button onClick={handleConfirm} style={{
-            background: '#6366f1',
-            border: 'none', borderRadius: 10, padding: '8px 24px',
-            color: '#fff', cursor: 'pointer', fontSize: 13, fontWeight: 'bold',
+            background: theme.colors.accentStrong,
+            border: 'none', borderRadius: 12, padding: '10px 28px',
+            color: '#000', cursor: 'pointer', fontSize: 14, fontWeight: 'bold',
+            boxShadow: `4px 4px 10px ${theme.neu.colors.darkShadow}`,
           }}>Confirm</button>
         </div>
       </div>
@@ -1266,26 +1276,29 @@ function PdfPageCanvas({ pdf, pageIndex, containerWidth, containerHeight }: {
 function ToolButton({ icon: Icon, active, onPress }: { icon: any; active: boolean; onPress: () => void }) {
   return (
     <TouchableOpacity style={[styles.toolBtn, active && styles.activeToolBtn]} onPress={onPress}>
-      <Icon size={24} color={active ? '#000' : 'rgba(255,255,255,0.4)'} />
+      <Icon size={24} color={active ? theme.colors.white : theme.colors.textMuted} />
     </TouchableOpacity>
   );
 }
 
 /* ─── Styles ─── */
+const neuBoxShadow = `6px 6px 12px ${theme.neu.colors.darkShadow}, -6px -6px 12px ${theme.neu.colors.lightShadow}`;
+const neuBoxShadowPressed = theme.neu.shadowStyles.lightLayerInset.boxShadow;
+
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#0a0a0a',
+    backgroundColor: theme.colors.bg,
     paddingTop: 60,
   },
   loading: {
     flex: 1,
-    backgroundColor: '#0a0a0a',
+    backgroundColor: theme.colors.bg,
     alignItems: 'center',
     justifyContent: 'center',
   },
   loadingText: {
-    color: 'rgba(255,255,255,0.4)',
+    color: theme.colors.textMuted,
     fontSize: 10,
     fontWeight: 'bold',
     letterSpacing: 2,
@@ -1306,16 +1319,18 @@ const styles = StyleSheet.create({
   },
   backButton: {
     width: 40, height: 40,
-    backgroundColor: 'rgba(255,255,255,0.05)',
-    borderRadius: 12,
+    backgroundColor: theme.colors.surface,
+    borderRadius: 14,
     alignItems: 'center', justifyContent: 'center',
+    // @ts-ignore
+    boxShadow: neuBoxShadow,
   },
   title: {
-    color: '#fff', fontSize: 16, fontWeight: 'bold',
+    color: theme.colors.text, fontSize: 16, fontWeight: '700',
     maxWidth: 300,
   },
   subtitle: {
-    color: 'rgba(255,255,255,0.4)',
+    color: theme.colors.textMuted,
     fontSize: 10, fontWeight: 'bold',
     letterSpacing: 1, marginTop: 2,
   },
@@ -1324,16 +1339,20 @@ const styles = StyleSheet.create({
   },
   actionBtn: {
     width: 40, height: 40,
-    backgroundColor: 'rgba(255,255,255,0.05)',
-    borderRadius: 12,
+    backgroundColor: theme.colors.surface,
+    borderRadius: 14,
     alignItems: 'center', justifyContent: 'center',
+    // @ts-ignore
+    boxShadow: neuBoxShadow,
   },
   disabledBtn: { opacity: 0.3 },
   saveBtn: {
     width: 40, height: 40,
-    backgroundColor: '#fff',
-    borderRadius: 12,
+    backgroundColor: theme.colors.accentStrong,
+    borderRadius: 14,
     alignItems: 'center', justifyContent: 'center',
+    // @ts-ignore
+    boxShadow: neuBoxShadow,
   },
   editorArea: {
     flex: 1,
@@ -1344,31 +1363,33 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     overflow: 'hidden',
     position: 'relative' as any,
+    // @ts-ignore
+    boxShadow: `8px 8px 18px ${theme.neu.colors.darkShadow}`,
   },
   toolbar: {
     position: 'absolute',
     bottom: 40, left: 25, right: 25,
     height: 70,
-    backgroundColor: 'rgba(22,22,22,0.9)',
+    backgroundColor: theme.colors.surface,
     borderRadius: 35,
     flexDirection: 'row',
     alignItems: 'center', justifyContent: 'space-around',
     paddingHorizontal: 15,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.1)',
+    // @ts-ignore
+    boxShadow: `8px 8px 16px ${theme.neu.colors.darkShadow}, -8px -8px 16px ${theme.neu.colors.lightShadow}`,
   },
   toolBtn: {
     width: 48, height: 48, borderRadius: 24,
     alignItems: 'center', justifyContent: 'center',
   },
-  activeToolBtn: { backgroundColor: '#fff' },
+  activeToolBtn: { backgroundColor: theme.colors.accentStrong },
   toolDivider: {
     width: 1, height: 30,
     backgroundColor: 'rgba(255,255,255,0.1)',
   },
   exportBtn: {
     width: 48, height: 48,
-    backgroundColor: '#fff',
+    backgroundColor: theme.colors.surfaceSoft,
     borderRadius: 24,
     alignItems: 'center', justifyContent: 'center',
   },
@@ -1377,14 +1398,14 @@ const styles = StyleSheet.create({
   },
   quickBtn: {
     width: 50, height: 50,
-    backgroundColor: 'rgba(255,255,255,0.05)',
+    backgroundColor: theme.colors.surface,
     borderRadius: 15,
     alignItems: 'center', justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.1)',
+    // @ts-ignore
+    boxShadow: neuBoxShadow,
   },
   quickText: {
-    color: 'rgba(255,255,255,0.4)',
+    color: theme.colors.textMuted,
     fontSize: 8, fontWeight: 'bold', marginTop: 2,
   },
 });

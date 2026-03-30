@@ -7,6 +7,7 @@ import React, { useEffect, useState } from 'react';
 import { View, ActivityIndicator, StyleSheet, Text, Image, Platform } from 'react-native';
 // @ts-ignore
 import logoSrc from '../public/logo.svg';
+import appIcon from '../assets/icon.png';
 import { onAuthStateChanged } from 'firebase/auth';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
 import { auth, db } from './firebase';
@@ -22,11 +23,29 @@ import Layout from './components/Layout';
 import { UserProfile } from './types';
 import { StatusBar } from 'expo-status-bar';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
+import { useFonts } from 'expo-font';
+import { theme } from './theme';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 export default function App() {
   const { user, setUser } = useStore();
   const [loading, setLoading] = useState(true);
   const [view, setView] = useState<string>('dashboard');
+  const [fontsLoaded] = useFonts({
+    PDFabArial: require('../assets/fonts/Arial.ttf'),
+    PDFabAssistant: require('../assets/fonts/Assistant-VariableFont_wght.ttf'),
+    PDFabAmaticSC: require('../assets/fonts/AmaticSC-Regular.ttf'),
+    PDFabAmaticSCBold: require('../assets/fonts/AmaticSC-Bold.ttf'),
+    PDFabBellefair: require('../assets/fonts/Bellefair-Regular.ttf'),
+    PDFabMontserrat: require('../assets/fonts/Montserrat-VariableFont_wght.ttf'),
+    PDFabMontserratItalic: require('../assets/fonts/Montserrat-Italic-VariableFont_wght.ttf'),
+    PDFabOpenSans: require('../assets/fonts/OpenSans-VariableFont_wdth,wght.ttf'),
+    PDFabOpenSansItalic: require('../assets/fonts/OpenSans-Italic-VariableFont_wdth,wght.ttf'),
+    PDFabGeorgia: require('../assets/fonts/Georgia.ttf'),
+    PDFabCourierNew: require('../assets/fonts/CourierNew.ttf'),
+    PDFabTimesNewRoman: require('../assets/fonts/TimesNewRoman.ttf'),
+    PDFabVerdana: require('../assets/fonts/Verdana.ttf'),
+  });
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
@@ -59,12 +78,16 @@ export default function App() {
     return () => unsubscribe();
   }, [setUser]);
 
-  if (loading) {
+  if (loading || !fontsLoaded) {
     return (
       <View style={styles.loadingContainer}>
-        <Image source={Platform.OS === 'web' ? { uri: '/logo.svg' } : logoSrc} style={styles.loadingLogo} resizeMode="contain" />
+        <Image
+          source={Platform.OS === 'web' ? { uri: '/icon.png' } : appIcon}
+          style={styles.loadingLogo}
+          resizeMode="contain"
+        />
         <Text style={styles.loadingText}>PDFab</Text>
-        <ActivityIndicator size="large" color="#ec6400" style={{ marginTop: 20 }} />
+        <ActivityIndicator size="large" color={theme.colors.accentStrong} style={{ marginTop: 20 }} />
       </View>
     );
   }
@@ -74,28 +97,30 @@ export default function App() {
   }
 
   return (
-    <GestureHandlerRootView style={styles.container}>
-      <StatusBar style="light" />
-      <Layout currentView={view} setView={setView}>
-        {view === 'dashboard' && <Dashboard setView={setView} />}
-        {view === 'editor' && <Editor setView={setView} />}
-        {view === 'reflow' && <Reflow setView={setView} />}
-        {view === 'transcription' && <Transcription setView={setView} />}
-        {view === 'signatures' && <Signatures setView={setView} />}
-        {view === 'scanner' && <Scanner setView={setView} />}
-      </Layout>
-    </GestureHandlerRootView>
+    <SafeAreaProvider>
+      <GestureHandlerRootView style={styles.container}>
+        <StatusBar style="light" />
+        <Layout currentView={view} setView={setView}>
+          {view === 'dashboard' && <Dashboard setView={setView} />}
+          {view === 'editor' && <Editor setView={setView} />}
+          {view === 'reflow' && <Reflow setView={setView} />}
+          {view === 'transcription' && <Transcription setView={setView} />}
+          {view === 'signatures' && <Signatures setView={setView} />}
+          {view === 'scanner' && <Scanner setView={setView} />}
+        </Layout>
+      </GestureHandlerRootView>
+    </SafeAreaProvider>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#0a0a0a',
+    backgroundColor: theme.colors.bg,
   },
   loadingContainer: {
     flex: 1,
-    backgroundColor: '#0a0a0a',
+    backgroundColor: theme.colors.bg,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -105,11 +130,11 @@ const styles = StyleSheet.create({
     borderRadius: 20,
   },
   loadingText: {
-    color: '#ffffff',
+    color: theme.colors.text,
     marginTop: 16,
     fontSize: 24,
-    fontWeight: '900',
-    fontStyle: 'italic',
-    letterSpacing: -1,
+    fontWeight: '800',
+    letterSpacing: -0.6,
+    fontFamily: 'PDFabMontserrat',
   },
 });

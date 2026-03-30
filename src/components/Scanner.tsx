@@ -11,6 +11,9 @@ import { ref, getDownloadURL } from 'firebase/storage';
 import { PDFDocument as PDFLib } from 'pdf-lib';
 import { uploadFileToFirebase } from '../lib/firebase-upload';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { theme } from '../theme';
+import NeumorphicButton from './NeumorphicButton';
+import NeumorphicView from './NeumorphicView';
 
 const { width, height } = Dimensions.get('window');
 
@@ -104,12 +107,12 @@ export default function Scanner({ setView }: ScannerProps) {
   };
 
   if (!permission) {
-    return <SafeAreaView style={styles.container} edges={['top']} />;
+    return <SafeAreaView style={styles.container} edges={['top', 'bottom']} />;
   }
 
   if (!permission.granted) {
     return (
-      <SafeAreaView style={styles.container} edges={['top']}>
+      <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
         <Text style={styles.permissionText}>We need your permission to show the camera</Text>
         <TouchableOpacity style={styles.permissionButton} onPress={requestPermission}>
           <Text style={styles.permissionButtonText}>Grant Permission</Text>
@@ -119,11 +122,11 @@ export default function Scanner({ setView }: ScannerProps) {
   }
 
   return (
-    <SafeAreaView style={styles.container} edges={['top']}>
+    <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => setView('dashboard')} style={styles.backButton}>
-          <ChevronLeft size={24} color="#fff" />
-        </TouchableOpacity>
+        <NeumorphicButton radius={12} layerStyle={styles.backButton} onPress={() => setView('dashboard')}>
+          <ChevronLeft size={24} color={theme.colors.text} />
+        </NeumorphicButton>
         <View>
           <Text style={styles.title}>Scan to PDF</Text>
           <Text style={styles.subtitle}>CONVERT PHOTOS TO DOCUMENTS</Text>
@@ -133,20 +136,20 @@ export default function Scanner({ setView }: ScannerProps) {
       <View style={styles.content}>
         {!image && !cameraActive ? (
           <View style={styles.menu}>
-            <TouchableOpacity style={styles.menuCard} onPress={() => setCameraActive(true)}>
-              <View style={styles.menuIcon}>
-                <CameraIcon size={32} color="#fff" />
-              </View>
+            <NeumorphicButton radius={28} layerStyle={styles.menuCard} onPress={() => setCameraActive(true)}>
+              <NeumorphicView pressed radius={18} layerStyle={styles.menuIcon}>
+                <CameraIcon size={32} color={theme.colors.text} />
+              </NeumorphicView>
               <Text style={styles.menuTitle}>Use Camera</Text>
               <Text style={styles.menuSubtitle}>Scan documents directly</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.menuCard} onPress={pickImage}>
-              <View style={styles.menuIcon}>
-                <ImageIcon size={32} color="#fff" />
-              </View>
+            </NeumorphicButton>
+            <NeumorphicButton radius={28} layerStyle={styles.menuCard} onPress={pickImage}>
+              <NeumorphicView pressed radius={18} layerStyle={styles.menuIcon}>
+                <ImageIcon size={32} color={theme.colors.text} />
+              </NeumorphicView>
               <Text style={styles.menuTitle}>Upload Photo</Text>
               <Text style={styles.menuSubtitle}>Pick from gallery</Text>
-            </TouchableOpacity>
+            </NeumorphicButton>
           </View>
         ) : cameraActive ? (
           <View style={styles.cameraWrapper}>
@@ -169,13 +172,17 @@ export default function Scanner({ setView }: ScannerProps) {
           <View style={styles.previewWrapper}>
             <Image source={{ uri: image! }} style={styles.previewImage} resizeMode="contain" />
             <View style={styles.previewActions}>
-              <TouchableOpacity style={styles.discardButton} onPress={() => setImage(null)}>
+              <NeumorphicButton layerStyle={styles.discardButton} onPress={() => setImage(null)}>
                 <Text style={styles.discardButtonText}>DISCARD</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.saveButton} onPress={handleScan} disabled={scanning}>
-                {scanning ? <ActivityIndicator color="#000" /> : <Check size={20} color="#000" />}
+              </NeumorphicButton>
+              <NeumorphicButton 
+                layerStyle={[styles.saveButton, { backgroundColor: theme.colors.accentStrong }]}
+                onPress={handleScan} 
+                disabled={scanning}
+              >
+                {scanning ? <ActivityIndicator color={theme.colors.white} /> : <Check size={20} color={theme.colors.white} />}
                 <Text style={styles.saveButtonText}>{scanning ? 'SAVING...' : 'CREATE PDF'}</Text>
-              </TouchableOpacity>
+              </NeumorphicButton>
             </View>
           </View>
         )}
@@ -187,7 +194,7 @@ export default function Scanner({ setView }: ScannerProps) {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#0a0a0a',
+    backgroundColor: theme.colors.bg,
   },
   header: {
     flexDirection: 'row',
@@ -199,18 +206,16 @@ const styles = StyleSheet.create({
   backButton: {
     width: 40,
     height: 40,
-    backgroundColor: 'rgba(255,255,255,0.05)',
-    borderRadius: 12,
-    alignItems: 'center',
-    justifyContent: 'center',
+    paddingHorizontal: 0,
+    paddingVertical: 0,
   },
   title: {
-    color: '#fff',
+    color: theme.colors.text,
     fontSize: 18,
     fontWeight: 'bold',
   },
   subtitle: {
-    color: 'rgba(255,255,255,0.4)',
+    color: theme.colors.textMuted,
     fontSize: 10,
     fontWeight: 'bold',
     letterSpacing: 1,
@@ -225,30 +230,24 @@ const styles = StyleSheet.create({
     marginTop: 20,
   },
   menuCard: {
-    backgroundColor: 'rgba(255,255,255,0.05)',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.1)',
-    borderRadius: 24,
     padding: 30,
     alignItems: 'center',
   },
   menuIcon: {
     width: 64,
     height: 64,
-    backgroundColor: 'rgba(255,255,255,0.1)',
-    borderRadius: 20,
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: 20,
   },
   menuTitle: {
-    color: '#fff',
+    color: theme.colors.text,
     fontSize: 18,
     fontWeight: 'bold',
     marginBottom: 5,
   },
   menuSubtitle: {
-    color: 'rgba(255,255,255,0.4)',
+    color: theme.colors.textSoft,
     fontSize: 12,
   },
   cameraWrapper: {
@@ -336,16 +335,13 @@ const styles = StyleSheet.create({
   },
   saveButton: {
     flex: 2,
-    height: 56,
-    backgroundColor: '#fff',
-    borderRadius: 28,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 10,
   },
   saveButtonText: {
-    color: '#000',
+    color: theme.colors.white,
     fontSize: 14,
     fontWeight: 'bold',
     letterSpacing: 1,

@@ -1,13 +1,31 @@
 @import "tailwindcss";
 
 @theme {
-  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-sans: "Montserrat", "Assistant", ui-sans-serif, system-ui, sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
 }
 
 @layer base {
+  :root {
+    color-scheme: dark;
+  }
+
+  html {
+    background:
+      radial-gradient(circle at top, rgba(244, 123, 32, 0.14), transparent 30%),
+      linear-gradient(180deg, #20283a 0%, #1d2434 100%);
+  }
+
   body {
-    @apply bg-[#0a0a0a] text-white antialiased;
+    @apply text-white antialiased;
+    background:
+      radial-gradient(circle at top, rgba(244, 123, 32, 0.14), transparent 30%),
+      linear-gradient(180deg, #20283a 0%, #1d2434 100%);
+    font-family: "Montserrat", "Assistant", ui-sans-serif, system-ui, sans-serif;
+  }
+
+  #root {
+    min-height: 100vh;
   }
 }
 
