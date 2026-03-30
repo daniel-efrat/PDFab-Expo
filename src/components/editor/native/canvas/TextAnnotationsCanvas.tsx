@@ -2,8 +2,12 @@ import React, { memo, useMemo } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import type { Annotation } from '../../../../types';
 import { styles } from '../styles';
-import { getRenderableFontFamily, getRotationDegrees, getTextMetrics } from '../utils/geometry';
-import { getTextDirectionStyle } from '../utils/helpers';
+import { getRotationDegrees } from '../utils/geometry';
+import {
+  getTextAnchorPageCoords,
+  getTextAnnotationFrame,
+  useMeasuredTextAnnotationBox,
+} from '../utils/useMeasuredTextAnnotationBox';
 
 export const TextAnnotationsCanvas = memo(function TextAnnotationsCanvas({
   annotations,
@@ -25,43 +29,56 @@ export const TextAnnotationsCanvas = memo(function TextAnnotationsCanvas({
 
   return (
     <View style={StyleSheet.absoluteFill} pointerEvents="none">
-      {textAnnotations.map((annotation) => {
-        const metrics = getTextMetrics(annotation.data);
-        const x = (annotation.data?.x / 100) * width;
-        const y = (annotation.data?.y / 100) * height;
-        const textValue = String(annotation.data?.text || '');
-        const rotation = getRotationDegrees(annotation.data);
-        const boxWidth = metrics.width + metrics.horizontalPadding * 2;
-        const boxHeight = metrics.height + metrics.verticalPadding * 2;
-
-        return (
-          <View
-            key={`${annotation.id}-canvas-group`}
-            style={[
-              styles.annotationTextContent,
-              {
-                left: x - metrics.horizontalPadding,
-                top: y - metrics.ascent - metrics.verticalPadding,
-                width: boxWidth,
-                minHeight: boxHeight,
-                transform: [{ rotate: `${rotation}deg` }],
-              },
-            ]}
-          >
-            <Text
-              style={{
-                color: annotation.data?.color || '#111827',
-                fontFamily: getRenderableFontFamily(textValue, annotation.data?.fontFamily),
-                fontSize: metrics.fontSize,
-                lineHeight: metrics.lineHeight,
-                ...getTextDirectionStyle(textValue),
-              }}
-            >
-              {textValue}
-            </Text>
-          </View>
-        );
-      })}
+      {textAnnotations.map((annotation) => (
+        <MeasuredTextAnnotationView
+          key={`${annotation.id}-canvas-group`}
+          annotation={annotation}
+          pageWidth={width}
+          pageHeight={height}
+          rotation={getRotationDegrees(annotation.data)}
+        />
+      ))}
     </View>
   );
 });
+
+function MeasuredTextAnnotationView({
+  annotation,
+  pageWidth,
+  pageHeight,
+  rotation,
+}: {
+  annotation: Annotation;
+  pageWidth: number;
+  pageHeight: number;
+  rotation: number;
+}) {
+  const textValue = String(annotation.data?.text || '');
+  const fontSize = annotation.data?.fontSize || 16;
+  const { metrics, box, textStyle } = useMeasuredTextAnnotationBox({
+    annotationData: annotation.data,
+    textValue,
+    fontSize,
+  });
+  const { x, y } = getTextAnchorPageCoords(annotation.data, pageWidth, pageHeight);
+  const { boxLeft, boxTop, boxWidth, boxHeight } = getTextAnnotationFrame(metrics, box, x, y);
+
+  return (
+    <View
+      style={[
+        styles.annotationTextContent,
+        {
+          left: boxLeft,
+          top: boxTop,
+          width: boxWidth,
+          minHeight: boxHeight,
+          transform: [{ rotate: `${rotation}deg` }],
+        },
+      ]}
+    >
+      <Text allowFontScaling={false} style={textStyle}>
+        {textValue}
+      </Text>
+    </View>
+  );
+}

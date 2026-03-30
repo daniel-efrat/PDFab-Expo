@@ -6,14 +6,12 @@ import { Canvas, Circle, Rect as SkiaRect } from '@shopify/react-native-skia';
 import { Trash2 } from 'lucide-react-native';
 import type { Annotation } from '../../../../types';
 import { styles } from '../styles';
-import { getTextDirectionStyle } from '../utils/helpers';
+import { getResizedTextFontSize, getRotationDegrees, getRotationFromGesture } from '../utils/geometry';
 import {
-  getRenderableFontFamily,
-  getResizedTextFontSize,
-  getRotationDegrees,
-  getRotationFromGesture,
-  getTextMetrics,
-} from '../utils/geometry';
+  getTextAnchorPageCoords,
+  getTextAnnotationFrame,
+  useMeasuredTextAnnotationBox,
+} from '../utils/useMeasuredTextAnnotationBox';
 
 export function SelectedTextOverlay({
   annotation,
@@ -49,8 +47,7 @@ export function SelectedTextOverlay({
   onInteractionEnd: () => void;
 }) {
   const textValue = String(annotation.data?.text || '');
-  const x = ((annotation.data?.x || 0) / 100) * width;
-  const y = ((annotation.data?.y || 0) / 100) * height;
+  const { x, y } = getTextAnchorPageCoords(annotation.data, width, height);
   const [previewFontSize, setPreviewFontSize] = useState(annotation.data?.fontSize || activeFontSize);
   const [previewRotation, setPreviewRotation] = useState(getRotationDegrees(annotation.data));
   const previewFontSizeRef = useRef(previewFontSize);
@@ -85,16 +82,15 @@ export function SelectedTextOverlay({
     dragTranslateY.value = 0;
   }, [dragTranslateX, dragTranslateY, x, y]);
 
-  const metrics = getTextMetrics({
-    ...annotation.data,
+  const { metrics, box, textStyle } = useMeasuredTextAnnotationBox({
+    annotationData: annotation.data,
+    textValue,
     fontSize: previewFontSize,
   });
-  const boxLeft = x - metrics.horizontalPadding;
-  const boxTop = y - metrics.ascent - metrics.verticalPadding;
-  const boxWidth = metrics.width + metrics.horizontalPadding * 2;
-  const boxHeight = metrics.height + metrics.verticalPadding * 2;
+  const { boxLeft, boxTop, boxWidth, boxHeight } = getTextAnnotationFrame(metrics, box, x, y);
+
   const uiScale = 1 / Math.max(zoom, 0.01);
-  const pillWidth = 160 * uiScale;
+  const pillWidth = 204 * uiScale;
   const pillHeight = 52 * uiScale;
   const pillGap = 18 * uiScale;
   const canvasHandleRadius = 5 * uiScale;
@@ -264,6 +260,22 @@ export function SelectedTextOverlay({
         <TouchableOpacity style={[styles.selectionActionBtn, { paddingHorizontal: 6 * uiScale, paddingVertical: 8 * uiScale }]} onPress={onIncrease}>
           <Text style={[styles.selectionActionText, { fontSize: 14 * uiScale }]}>A+</Text>
         </TouchableOpacity>
+        <View
+          pointerEvents="none"
+          style={[
+            styles.selectionPillSizeLabel,
+            { paddingHorizontal: 6 * uiScale, minWidth: 40 * uiScale },
+          ]}
+        >
+          <Text
+            style={[
+              styles.selectionPillSizeText,
+              { fontSize: 13 * uiScale, fontVariant: ['tabular-nums'] },
+            ]}
+          >
+            {Math.round(previewFontSize)}
+          </Text>
+        </View>
         <TouchableOpacity
           style={[
             styles.selectionActionBtn,
@@ -287,7 +299,7 @@ export function SelectedTextOverlay({
             left: boxLeft,
             top: boxTop,
             width: boxWidth,
-            minHeight: boxHeight,
+            height: boxHeight,
           },
           overlayAnimatedStyle,
         ]}
@@ -304,16 +316,8 @@ export function SelectedTextOverlay({
           <Circle cx={boxWidth + canvasHandleOffset} cy={boxHeight + canvasHandleOffset} r={canvasHandleRadius} color="#ffffff" />
           <Circle cx={boxWidth + canvasHandleOffset} cy={boxHeight + canvasHandleOffset} r={canvasHandleRadius} color="#60a5fa" style="stroke" strokeWidth={canvasHandleStrokeWidth} />
         </Canvas>
-        <View pointerEvents="none" style={styles.selectedTextContent}>
-          <Text
-            style={{
-              color: annotation.data?.color || '#111827',
-              fontFamily: getRenderableFontFamily(textValue, annotation.data?.fontFamily),
-              fontSize: previewFontSize,
-              lineHeight: metrics.lineHeight,
-              ...getTextDirectionStyle(textValue),
-            }}
-          >
+        <View pointerEvents="none" style={{ position: 'absolute', left: 0, top: 0, width: boxWidth, minHeight: boxHeight }}>
+          <Text allowFontScaling={false} style={textStyle}>
             {textValue}
           </Text>
         </View>

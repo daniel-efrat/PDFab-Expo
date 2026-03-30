@@ -13,6 +13,11 @@ import {
   getRotationDegrees,
   getTextMetrics,
 } from '../utils/geometry';
+import {
+  getTextAnchorPageCoords,
+  getTextAnnotationFrame,
+  useMeasuredTextAnnotationBox,
+} from '../utils/useMeasuredTextAnnotationBox';
 
 export function AnnotationTouchItem({
   annotation,
@@ -210,18 +215,23 @@ export function TextAnnotationTouchItem({
   onResize: (fontSize: number) => void;
 }) {
   const textValue = String(annotation.data?.text || '');
-  const x = ((annotation.data?.x || 0) / 100) * width;
-  const y = ((annotation.data?.y || 0) / 100) * height;
-  const metrics = getTextMetrics(annotation.data);
+  const { x, y } = getTextAnchorPageCoords(annotation.data, width, height);
   const rotation = getRotationDegrees(annotation.data);
+  const metrics = getTextMetrics(annotation.data);
   const [previewFontSize, setPreviewFontSize] = useState(annotation.data?.fontSize || metrics.fontSize);
+  const { box } = useMeasuredTextAnnotationBox({
+    annotationData: annotation.data,
+    textValue,
+    fontSize: previewFontSize,
+  });
+  const previewMetrics = getTextMetrics({ ...annotation.data, fontSize: previewFontSize });
+  const { boxLeft, boxTop, boxWidth, boxHeight } = getTextAnnotationFrame(previewMetrics, box, x, y);
   const previewFontSizeRef = useRef(previewFontSize);
   const dragTranslateX = useSharedValue(0);
   const dragTranslateY = useSharedValue(0);
   const resizeStartFontSize = useSharedValue(annotation.data?.fontSize || metrics.fontSize);
   const resizeStartWidth = useSharedValue(1);
   const resizeStartHeight = useSharedValue(1);
-  const previewMetrics = getTextMetrics({ ...annotation.data, fontSize: previewFontSize });
   const uiScale = 1 / Math.max(zoom, 0.01);
   const handleSize = 10 * uiScale;
   const handleOffset = -5 * uiScale;
@@ -289,8 +299,8 @@ export function TextAnnotationTouchItem({
         .onBegin(() => {
           onPress();
           resizeStartFontSize.value = annotation.data?.fontSize || metrics.fontSize;
-          resizeStartWidth.value = previewMetrics.width + previewMetrics.horizontalPadding * 2;
-          resizeStartHeight.value = previewMetrics.height + previewMetrics.verticalPadding * 2;
+          resizeStartWidth.value = boxWidth;
+          resizeStartHeight.value = boxHeight;
         })
         .onUpdate((event) => {
           const nextFontSize = getResizedTextFontSize(
@@ -308,13 +318,11 @@ export function TextAnnotationTouchItem({
         }),
     [
       annotation.data?.fontSize,
+      boxHeight,
+      boxWidth,
       metrics.fontSize,
       onPress,
       onResize,
-      previewMetrics.height,
-      previewMetrics.horizontalPadding,
-      previewMetrics.verticalPadding,
-      previewMetrics.width,
       resizeStartFontSize,
       resizeStartHeight,
       resizeStartWidth,
@@ -328,10 +336,10 @@ export function TextAnnotationTouchItem({
       style={[
         styles.textHitbox,
         {
-          left: x - previewMetrics.horizontalPadding,
-          top: y - previewMetrics.ascent - previewMetrics.verticalPadding,
-          width: previewMetrics.width + previewMetrics.horizontalPadding * 2,
-          height: previewMetrics.height + previewMetrics.verticalPadding * 2,
+          left: boxLeft,
+          top: boxTop,
+          width: boxWidth,
+          height: boxHeight,
           transform: [{ rotate: `${rotation}deg` }],
         },
         selected && styles.selectedHitbox,

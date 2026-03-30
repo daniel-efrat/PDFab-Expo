@@ -14,6 +14,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { theme } from '../theme';
 import NeumorphicButton from './NeumorphicButton';
 import NeumorphicView from './NeumorphicView';
+import PerspectiveCropOverlay from './PerspectiveCropOverlay';
 
 const { width, height } = Dimensions.get('window');
 
@@ -28,6 +29,7 @@ interface ScannerProps {
 export default function Scanner({ setView }: ScannerProps) {
   const { user } = useStore();
   const [image, setImage] = useState<string | null>(null);
+  const [showCrop, setShowCrop] = useState(false);
   const [scanning, setScanning] = useState(false);
   const [permission, requestPermission] = useCameraPermissions();
   const [cameraActive, setCameraActive] = useState(false);
@@ -42,12 +44,13 @@ export default function Scanner({ setView }: ScannerProps) {
   const pickImage = async () => {
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      allowsEditing: true,
+      allowsEditing: false,
       quality: 1,
     });
 
     if (!result.canceled) {
       setImage(result.assets[0].uri);
+      setShowCrop(true);
     }
   };
 
@@ -57,6 +60,7 @@ export default function Scanner({ setView }: ScannerProps) {
       if (photo) {
         setImage(photo.uri);
         setCameraActive(false);
+        setShowCrop(true);
       }
     }
   };
@@ -176,6 +180,13 @@ export default function Scanner({ setView }: ScannerProps) {
               </View>
             </CameraView>
           </View>
+        ) : image && showCrop ? (
+          <PerspectiveCropOverlay
+            imageUri={image}
+            onApply={(croppedUri) => { setImage(croppedUri); setShowCrop(false); }}
+            onSkip={() => setShowCrop(false)}
+            onDiscard={() => { setImage(null); setShowCrop(false); }}
+          />
         ) : (
           <View style={styles.previewWrapper}>
             <Image source={{ uri: image! }} style={styles.previewImage} resizeMode="contain" />

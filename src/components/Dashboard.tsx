@@ -1,14 +1,14 @@
-import React, { useEffect, useMemo, useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, FlatList, TextInput, ActivityIndicator, useWindowDimensions, Modal, ScrollView, ImageBackground } from 'react-native';
-import { collection, query, where, orderBy, onSnapshot, addDoc, updateDoc, doc, deleteDoc } from 'firebase/firestore';
+import React, { useEffect, useState } from 'react';
+import { View, Text, StyleSheet, TouchableOpacity, FlatList, TextInput, ActivityIndicator, Modal, ScrollView, ImageBackground, Platform } from 'react-native';
+import { collection, query, where, orderBy, onSnapshot, addDoc, updateDoc, doc } from 'firebase/firestore';
 import { ref, getDownloadURL } from 'firebase/storage';
-import { db, storage, auth } from '../firebase';
+import { db, storage } from '../firebase';
 import { useStore } from '../store/useStore';
 import { PDFDocument } from '../types';
-import { FileText, Plus, Search, Star, Trash2, Clock, Zap, Scan, LogOut, User as UserIcon, Edit2, X, Check, ChevronLeft, MoreVertical, File } from 'lucide-react-native';
+import { FileText, Plus, Search, Star, Trash2, Zap, Scan, User as UserIcon, X, Check, MoreVertical, Menu, Settings, Merge, Lock } from 'lucide-react-native';
 import * as DocumentPicker from 'expo-document-picker';
-import { formatDate } from '../lib/utils';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { formatDistanceToNow } from 'date-fns';
 import { uploadFileToFirebase } from '../lib/firebase-upload';
 import { theme } from '../theme';
 import NeumorphicView from './NeumorphicView';
@@ -18,10 +18,29 @@ interface DashboardProps {
   setView: (view: any) => void;
 }
 
+/** Matches PDFab Workspace HTML mock (dark navy, orange accent). */
+const ws = {
+  bg: '#0e1320',
+  surface: '#1a1f2c',
+  row: '#161b28',
+  searchBg: '#303442',
+  accent: '#ff8c00',
+  label: '#ddc1ae',
+  starIcon: '#b9c5ef',
+  trashIcon: '#abb4d3',
+  barTint: 'rgba(26,31,44,0.92)',
+  placeholder: 'rgba(221,193,174,0.55)',
+};
+
+function formatDocMeta(updatedAt: string, totalPages: number) {
+  const rel = formatDistanceToNow(new Date(updatedAt), { addSuffix: true });
+  const pages = totalPages > 0 ? `${totalPages} pg` : 'PDF';
+  return `Updated ${rel} • ${pages}`.toUpperCase();
+}
+
 export default function Dashboard({ setView }: DashboardProps) {
   const { user, setCurrentDocument } = useStore();
-  const { width } = useWindowDimensions();
-  const isMobile = width < 768;
+  const insets = useSafeAreaInsets();
   const [documents, setDocuments] = useState<PDFDocument[]>([]);
   const [search, setSearch] = useState('');
   const [uploading, setUploading] = useState(false);
@@ -104,35 +123,9 @@ export default function Dashboard({ setView }: DashboardProps) {
     return matchesSearch && !doc.isTrashed;
   });
 
-  const stats = useMemo(() => {
-    const activeDocuments = documents.filter((item) => !item.isTrashed);
-    const starredDocuments = activeDocuments.filter((item) => item.isStarred);
-    const trashedDocuments = documents.filter((item) => item.isTrashed);
-
-    return [
-      {
-        label: 'Total Documents',
-        value: activeDocuments.length.toString(),
-        icon: FileText,
-        tint: theme.colors.info,
-        tintSoft: theme.colors.infoSoft,
-      },
-      {
-        label: 'Starred Files',
-        value: starredDocuments.length.toString(),
-        icon: Star,
-        tint: theme.colors.warning,
-        tintSoft: theme.colors.warningSoft,
-      },
-      {
-        label: 'In Trash',
-        value: trashedDocuments.length.toString(),
-        icon: Trash2,
-        tint: theme.colors.danger,
-        tintSoft: theme.colors.dangerSoft,
-      },
-    ];
-  }, [documents]);
+  const activeCount = documents.filter((d) => !d.isTrashed).length;
+  const starredCount = documents.filter((d) => d.isStarred && !d.isTrashed).length;
+  const trashCount = documents.filter((d) => d.isTrashed).length;
 
   const handleOpen = (doc: PDFDocument) => {
     setCurrentDocument(doc);
@@ -171,183 +164,246 @@ export default function Dashboard({ setView }: DashboardProps) {
     }
   };
 
-  const renderItem = ({ item }: { item: PDFDocument }) => (
+  const renderItem = ({ item, index }: { item: PDFDocument; index: number }) => (
     <TouchableOpacity
       activeOpacity={0.7}
-      style={styles.card}
+      style={[styles.card, index > 2 && styles.cardFaded]}
       onPress={() => handleOpen(item)}
     >
-      <View style={styles.cardPreview}>
-        <FileText size={24} color={theme.colors.accentStrong} />
+      <View style={styles.cardIconSlot}>
+        <FileText size={25} color={ws.accent} />
       </View>
       <View style={styles.cardInfo}>
         <Text style={styles.cardTitle} numberOfLines={1}>{item.title}</Text>
-        <Text style={styles.cardDate}>{formatDate(item.updatedAt)} • PDF</Text>
+        <Text style={styles.cardMeta}>{formatDocMeta(item.updatedAt, item.totalPages)}</Text>
       </View>
       <View style={styles.cardActions}>
-        <TouchableOpacity 
-          style={styles.cardActionIcon}
-          onPress={(e) => { 
-            e.stopPropagation(); 
+        <TouchableOpacity
+          style={styles.cardActionGhost}
+          onPress={(e) => {
+            e.stopPropagation();
             setCurrentDocument(item);
             setView('transcription');
           }}
         >
-          <Zap size={20} color={theme.colors.accentStrong} />
+          <Zap size={18} color={ws.trashIcon} />
         </TouchableOpacity>
-        <TouchableOpacity 
-          style={styles.cardActionIcon}
-          onPress={(e) => { e.stopPropagation(); toggleStar(item.id, item.isStarred); }}
+        <TouchableOpacity
+          style={styles.cardActionGhost}
+          onPress={(e) => {
+            e.stopPropagation();
+            toggleStar(item.id, item.isStarred);
+          }}
         >
-          <Star size={20} color={item.isStarred ? theme.colors.warning : theme.colors.textSoft} fill={item.isStarred ? theme.colors.warning : 'transparent'} />
+          <Star
+            size={18}
+            color={item.isStarred ? ws.accent : ws.trashIcon}
+            fill={item.isStarred ? ws.accent : 'transparent'}
+          />
         </TouchableOpacity>
-        <TouchableOpacity 
-          style={styles.cardActionIcon}
-          onPress={(e) => { e.stopPropagation(); setEditingDoc(item); setEditName(item.title); }}
+        <TouchableOpacity
+          style={styles.moreBtn}
+          onPress={(e) => {
+            e.stopPropagation();
+            setEditingDoc(item);
+            setEditName(item.title);
+          }}
         >
-          <MoreVertical size={20} color={theme.colors.textSoft} />
+          <MoreVertical size={13} color={ws.accent} />
         </TouchableOpacity>
       </View>
     </TouchableOpacity>
   );
 
   const renderHeader = () => (
-    <View style={styles.headerSpacer}>
-      <View style={styles.header}>
-        <TouchableOpacity style={styles.menuIcon}>
-          <Plus size={24} color={theme.colors.accentStrong} />
-        </TouchableOpacity>
-        <Text style={styles.appLogo}>PDFab Workspace</Text>
-        <TouchableOpacity style={styles.searchHeaderIcon}>
-          <Search size={24} color={theme.colors.accentStrong} />
-        </TouchableOpacity>
-      </View>
-
+    <View style={styles.listHeaderInner}>
       <View style={styles.searchBarContainer}>
-        <View style={styles.searchInputWrapper}>
-          <Search size={20} color={theme.colors.textSoft} style={styles.searchIcon} />
+        <View style={styles.searchFieldOuter}>
+          <View style={styles.searchIconAbs} pointerEvents="none">
+            <Search size={18} color={ws.trashIcon} />
+          </View>
           <TextInput
             style={styles.searchInput}
-            placeholder="Search your workspace..."
-            placeholderTextColor={theme.colors.textSoft}
+            placeholder="Search your archive..."
+            placeholderTextColor={ws.placeholder}
             value={search}
             onChangeText={setSearch}
           />
         </View>
       </View>
 
-      <View style={styles.sectionHeader}>
-        <Text style={styles.sectionTitle}>Summary</Text>
-        <TouchableOpacity>
-          <Text style={styles.detailsLink}>Details</Text>
-        </TouchableOpacity>
-      </View>
-
-      <View style={styles.bentoGrid}>
-        <View style={[styles.bentoSmall, { width: '100%', marginBottom: 16 }]}>
-          <View>
-            <Text style={styles.bentoLabel}>Total Documents</Text>
-            <Text style={styles.bentoValueLarge}>{documents.filter(d => !d.isTrashed).length}</Text>
-          </View>
-          <View style={styles.bentoIconWrapper}>
-            <FileText size={24} color="#fff" />
-          </View>
-        </View>
-        <View style={styles.bentoRow}>
-          <View style={styles.bentoSmall}>
-            <Star size={18} color={theme.colors.warning} fill={theme.colors.warning} style={{ marginBottom: 12 }} />
-            <Text style={styles.bentoLabel}>Starred Files</Text>
-            <Text style={styles.bentoValue}>{documents.filter(d => d.isStarred && !d.isTrashed).length}</Text>
-          </View>
-          <View style={styles.bentoSmall}>
-            <Trash2 size={18} color={theme.colors.textSoft} style={{ marginBottom: 12 }} />
-            <Text style={styles.bentoLabel}>In Trash</Text>
-            <Text style={styles.bentoValue}>{documents.filter(d => d.isTrashed).length}</Text>
-          </View>
-        </View>
-      </View>
-
-      <View style={styles.sectionHeader}>
-        <Text style={styles.sectionTitle}>Quick Actions</Text>
-      </View>
-
-      <ScrollView 
-        horizontal 
-        showsHorizontalScrollIndicator={false} 
-        contentContainerStyle={styles.actionsCarousel}
-      >
-        <TouchableOpacity style={styles.actionCardMain} onPress={() => setView('scanner')} activeOpacity={0.9}>
-          <ImageBackground 
-            source={require('../../assets/gradient.png')} 
-            style={styles.actionCardGradient}
-            resizeMode="cover"
-          >
-            <View style={styles.actionIconWrapper}>
-              <Scan size={24} color="#fff" />
+      <View style={styles.summaryGrid}>
+        <TouchableOpacity
+          activeOpacity={0.85}
+          onPress={() => setFilter('all')}
+          style={[
+            styles.summaryCard,
+            styles.summaryFull,
+            filter === 'all' && styles.summaryCardActive,
+          ]}
+        >
+          <View style={styles.summaryAccent} />
+          <View style={styles.summaryBody}>
+            <View>
+              <Text style={styles.summaryLabel}>Total Documents</Text>
+              <Text style={styles.summaryValueLarge}>{activeCount}</Text>
             </View>
-            <Text style={styles.actionLabelMain}>Scan to PDF</Text>
-            <Text style={styles.actionDescMain}>Convert physical to digital instantly</Text>
-          </ImageBackground>
+            <Settings size={24} color={ws.accent} />
+          </View>
         </TouchableOpacity>
 
-        <TouchableOpacity style={styles.actionCardMainSecondary} onPress={() => setView('transcription')} activeOpacity={0.9}>
-          <ImageBackground 
-            source={require('../../assets/gradient.png')} 
-            style={[styles.actionCardGradient, { opacity: 0.9 }]}
-            resizeMode="cover"
+        <View style={styles.summaryRow}>
+          <TouchableOpacity
+            activeOpacity={0.85}
+            onPress={() => setFilter('starred')}
+            style={[
+              styles.summaryCard,
+              styles.summaryHalf,
+              filter === 'starred' && styles.summaryCardActive,
+            ]}
           >
-            <View style={[styles.actionIconWrapper, { backgroundColor: 'rgba(255,255,255,0.15)' }]}>
-              <Zap size={24} color="#fff" />
+            <View style={styles.summaryAccent} />
+            <View style={styles.summaryBody}>
+              <View>
+                <Text style={styles.summaryLabel}>Starred</Text>
+                <Text style={styles.summaryValueLarge}>{starredCount}</Text>
+              </View>
+              <Star size={24} color={ws.starIcon} />
             </View>
-            <Text style={styles.actionLabelMain}>AI Transcribe</Text>
-            <Text style={styles.actionDescMain}>Audio to PDF text in seconds</Text>
-          </ImageBackground>
-        </TouchableOpacity>
+          </TouchableOpacity>
 
-        <TouchableOpacity style={styles.actionCardSmall} onPress={() => setView('signatures')}>
-          <Edit2 size={20} color={theme.colors.accentStrong} style={{ marginBottom: 12 }} />
-          <Text style={styles.actionLabelSmall}>E-Sign</Text>
-        </TouchableOpacity>
-      </ScrollView>
+          <TouchableOpacity
+            activeOpacity={0.85}
+            onPress={() => setFilter('trash')}
+            style={[
+              styles.summaryCard,
+              styles.summaryHalf,
+              filter === 'trash' && styles.summaryCardActive,
+            ]}
+          >
+            <View style={styles.summaryAccent} />
+            <View style={styles.summaryBody}>
+              <View>
+                <Text style={styles.summaryLabel}>In Trash</Text>
+                <Text style={styles.summaryValueLarge}>{trashCount}</Text>
+              </View>
+              <Trash2 size={24} color={ws.trashIcon} />
+            </View>
+          </TouchableOpacity>
+        </View>
+      </View>
 
-      <View style={styles.tabs}>
-        <TouchableOpacity onPress={() => setFilter('all')} style={[styles.tab, filter === 'all' && styles.activeTab]}>
-          <Text style={[styles.tabText, filter === 'all' && styles.activeTabText]}>All Files</Text>
-        </TouchableOpacity>
-        <TouchableOpacity onPress={() => setFilter('starred')} style={[styles.tab, filter === 'starred' && styles.activeTab]}>
-          <Text style={[styles.tabText, filter === 'starred' && styles.activeTabText]}>Starred</Text>
-        </TouchableOpacity>
-        <TouchableOpacity onPress={() => setFilter('trash')} style={[styles.tab, filter === 'trash' && styles.activeTab]}>
-          <Text style={[styles.tabText, filter === 'trash' && styles.activeTabText]}>Trash</Text>
-        </TouchableOpacity>
+      <View style={[styles.sectionBlock, styles.sectionPad]}>
+        <View style={[styles.sectionTitleRow, styles.quickActionsTitleSpacing]}>
+          <View style={styles.sectionOrangeBar} />
+          <Text style={styles.sectionHeading}>Quick Actions</Text>
+        </View>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.actionsCarousel}
+        >
+          <TouchableOpacity style={styles.actionCardMain} onPress={() => setView('scanner')} activeOpacity={0.92}>
+            <ImageBackground
+              source={require('../../assets/gradient.png')}
+              style={styles.actionCardGradient}
+              resizeMode="cover"
+            >
+              <View style={styles.actionIconWrapper}>
+                <Scan size={18} color="#fff" />
+              </View>
+              <Text style={styles.actionLabelMain}>Scan to PDF</Text>
+              <Text style={styles.actionDescMain}>Convert physical to digital instantly</Text>
+              <View style={styles.actionWatermark} pointerEvents="none">
+                <FileText size={110} color="rgba(222,226,244,0.12)" />
+              </View>
+            </ImageBackground>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={styles.actionCardSmall}
+            onPress={() => showToast('Merge PDFs is coming soon')}
+            activeOpacity={0.85}
+          >
+            <Merge size={20} color="#ffb77d" />
+            <Text style={styles.actionLabelSmall}>Merge</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity style={styles.actionCardSmall} onPress={() => setView('signatures')} activeOpacity={0.85}>
+            <Lock size={20} color="#ffb77d" />
+            <Text style={styles.actionLabelSmall}>Protect</Text>
+          </TouchableOpacity>
+        </ScrollView>
+      </View>
+
+      <View style={styles.sectionBlock}>
+        <View style={styles.recentHeaderRow}>
+          <View style={styles.sectionTitleRow}>
+            <View style={styles.sectionOrangeBar} />
+            <Text style={styles.sectionHeading}>Recent Files</Text>
+          </View>
+          <TouchableOpacity onPress={() => setFilter('all')} activeOpacity={0.7}>
+            <Text style={styles.viewAllLink}>View All</Text>
+          </TouchableOpacity>
+        </View>
       </View>
     </View>
   );
 
   return (
-    <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
-      <FlatList
-        style={styles.list}
-        data={filteredDocs}
-        renderItem={renderItem}
-        keyExtractor={item => item.id}
-        ListHeaderComponent={renderHeader}
-        contentContainerStyle={styles.listContent}
-        ListEmptyComponent={
-          <View style={styles.empty}>
-            <FileText size={48} color={theme.colors.textSoft} />
-            <Text style={styles.emptyText}>No documents found</Text>
+    <SafeAreaView style={styles.safeRoot} edges={['bottom']}>
+      <View style={styles.root}>
+        <View
+          style={[
+            styles.topBar,
+            {
+              paddingTop: insets.top + 10,
+              paddingBottom: 14,
+              ...(Platform.OS === 'web'
+                ? { boxShadow: '0 8px 32px rgba(9,14,26,0.5)' as const }
+                : null),
+            },
+          ]}
+        >
+          <View style={styles.topBarLeft}>
+            <TouchableOpacity style={styles.topBarIconBtn} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
+              <Menu size={18} color={ws.accent} />
+            </TouchableOpacity>
+            <Text style={styles.topBarTitle} numberOfLines={1}>
+              PDFab workspace
+            </Text>
           </View>
-        }
-      />
+          <View style={styles.avatarRing}>
+            <UserIcon size={22} color="#fff" />
+          </View>
+        </View>
 
-      <TouchableOpacity 
-        style={styles.fab}
-        onPress={handleUpload}
-        activeOpacity={0.8}
-      >
-        {uploading ? <ActivityIndicator color="#0E1320" /> : <Plus size={32} color="#0E1320" />}
-      </TouchableOpacity>
+        <FlatList
+          style={styles.list}
+          data={filteredDocs}
+          renderItem={renderItem}
+          keyExtractor={(item) => item.id}
+          ListHeaderComponent={renderHeader}
+          contentContainerStyle={styles.listContent}
+          ListEmptyComponent={
+            <View style={styles.empty}>
+              <FileText size={48} color={ws.trashIcon} />
+              <Text style={styles.emptyText}>No documents found</Text>
+            </View>
+          }
+        />
+
+        <TouchableOpacity style={styles.fabOuter} onPress={handleUpload} activeOpacity={0.88}>
+          <ImageBackground
+            source={require('../../assets/gradient.png')}
+            style={styles.fab}
+            imageStyle={styles.fabImageRadius}
+            resizeMode="cover"
+          >
+            {uploading ? <ActivityIndicator color="#0e1320" /> : <Plus size={22} color="#0e1320" />}
+          </ImageBackground>
+        </TouchableOpacity>
+      </View>
 
       {/* Rename Modal */}
       <Modal
@@ -412,270 +468,359 @@ export default function Dashboard({ setView }: DashboardProps) {
 }
 
 const styles = StyleSheet.create({
-  container: {
+  safeRoot: {
     flex: 1,
-    backgroundColor: theme.colors.bg,
+    backgroundColor: ws.bg,
+  },
+  root: {
+    flex: 1,
+    backgroundColor: ws.bg,
+  },
+  topBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 24,
+    backgroundColor: ws.barTint,
+    zIndex: 10,
+    ...Platform.select({
+      ios: {
+        shadowColor: '#09121e',
+        shadowOffset: { width: 0, height: 8 },
+        shadowOpacity: 0.5,
+        shadowRadius: 16,
+      },
+      android: { elevation: 12 },
+      default: {},
+    }),
+  },
+  topBarLeft: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    minWidth: 0,
+  },
+  topBarIconBtn: {
+    marginRight: 12,
+    padding: 4,
+  },
+  topBarTitle: {
+    flexShrink: 1,
+    color: '#ffffff',
+    fontSize: 17,
+    fontWeight: '800',
+    letterSpacing: 1.5,
+    textTransform: 'uppercase',
+    fontFamily: 'PDFabMontserrat',
+  },
+  avatarRing: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    overflow: 'hidden',
+    backgroundColor: '#f97316',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginLeft: 12,
   },
   list: {
     flex: 1,
+    backgroundColor: ws.bg,
   },
-  headerSpacer: {
-    paddingTop: 12,
-  },
-  header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: 24,
-    marginBottom: 24,
-  },
-  menuIcon: {
-    padding: 8,
-  },
-  appLogo: {
-    color: theme.colors.accentStrong,
-    fontSize: 20,
-    fontWeight: '900',
-    letterSpacing: -0.5,
-    fontFamily: 'PDFabMontserrat',
-  },
-  searchHeaderIcon: {
-    padding: 8,
-  },
-  searchBarContainer: {
-    paddingHorizontal: 24,
-    marginBottom: 32,
-  },
-  searchInputWrapper: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: theme.colors.surfaceAlt,
-    borderRadius: 16,
-    paddingHorizontal: 16,
-    height: 56,
-  },
-  searchIcon: {
-    marginRight: 12,
-  },
-  searchInput: {
-    flex: 1,
-    color: theme.colors.text,
-    fontSize: 15,
-    fontWeight: '500',
-  },
-  sectionHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-end',
-    paddingHorizontal: 24,
-    marginBottom: 16,
-  },
-  sectionTitle: {
-    color: theme.colors.text,
-    fontSize: 22,
-    fontWeight: '800',
-    letterSpacing: -0.5,
-  },
-  detailsLink: {
-    color: theme.colors.accentStrong,
-    fontSize: 12,
-    fontWeight: '800',
-    textTransform: 'uppercase',
-    letterSpacing: 1,
-  },
-  bentoGrid: {
-    paddingHorizontal: 24,
-    marginBottom: 32,
-  },
-  bentoRow: {
-    flexDirection: 'row',
-    gap: 16,
-  },
-  bentoSmall: {
-    flex: 1,
-    backgroundColor: theme.colors.surface,
-    borderRadius: 20,
-    padding: 24,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.03)',
-  },
-  bentoLabel: {
-    color: theme.colors.textSoft,
-    fontSize: 12,
-    fontWeight: '600',
-    marginBottom: 4,
-  },
-  bentoValueLarge: {
-    color: theme.colors.white,
-    fontSize: 36,
-    fontWeight: '800',
-  },
-  bentoValue: {
-    color: theme.colors.white,
-    fontSize: 28,
-    fontWeight: '800',
-  },
-  bentoIconWrapper: {
-    width: 48,
-    height: 48,
-    borderRadius: 12,
-    backgroundColor: 'rgba(255,255,255,0.08)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  actionsCarousel: {
-    paddingHorizontal: 24,
-    gap: 16,
-    paddingBottom: 32,
-  },
-  actionCardMain: {
-    width: 260,
-    borderRadius: 24,
-    overflow: 'hidden',
-  },
-  actionCardMainSecondary: {
-    width: 260,
-    borderRadius: 24,
-    overflow: 'hidden',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.05)',
-  },
-  actionCardGradient: {
-    padding: 24,
-    flex: 1,
-  },
-  actionIconWrapper: {
-    width: 48,
-    height: 48,
-    borderRadius: 12,
-    backgroundColor: 'rgba(255,255,255,0.2)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 16,
-  },
-  actionLabelMain: {
-    color: '#0E1320',
-    fontSize: 20,
-    fontWeight: '900',
-    marginBottom: 4,
-  },
-  actionDescMain: {
-    color: 'rgba(14,19,32,0.7)',
-    fontSize: 14,
-    fontWeight: '500',
-  },
-  actionCardSmall: {
-    width: 160,
-    backgroundColor: theme.colors.surfaceAlt,
-    borderRadius: 24,
-    padding: 24,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.05)',
-  },
-  actionLabelSmall: {
-    color: theme.colors.text,
-    fontSize: 16,
-    fontWeight: '800',
-  },
-  tabs: {
-    flexDirection: 'row',
-    paddingHorizontal: 24,
-    gap: 24,
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255,255,255,0.05)',
-    marginBottom: 24,
-  },
-  tab: {
-    paddingBottom: 12,
-    borderBottomWidth: 2,
-    borderBottomColor: 'transparent',
-  },
-  activeTab: {
-    borderBottomColor: theme.colors.accentStrong,
-  },
-  tabText: {
-    color: theme.colors.textSoft,
-    fontSize: 14,
-    fontWeight: '700',
-  },
-  activeTabText: {
-    color: theme.colors.accentStrong,
+  listHeaderInner: {
+    paddingTop: 8,
+    paddingBottom: 8,
   },
   listContent: {
     paddingBottom: 120,
   },
-  card: {
+  searchBarContainer: {
+    paddingHorizontal: 24,
+    marginBottom: 24,
+  },
+  searchFieldOuter: {
+    backgroundColor: ws.searchBg,
+    borderRadius: 12,
+    position: 'relative',
+  },
+  searchIconAbs: {
+    position: 'absolute',
+    left: 16,
+    top: 0,
+    bottom: 0,
+    justifyContent: 'center',
+    zIndex: 1,
+  },
+  searchInput: {
+    paddingVertical: 16,
+    paddingLeft: 48,
+    paddingRight: 16,
+    fontSize: 16,
+    fontWeight: '500',
+    color: '#f3f4f7',
+    fontFamily: 'PDFabMontserrat',
+  },
+  summaryGrid: {
+    paddingHorizontal: 24,
+    marginBottom: 28,
+  },
+  summaryCard: {
+    backgroundColor: ws.surface,
+    borderRadius: 12,
+    overflow: 'hidden',
+    position: 'relative',
+  },
+  summaryFull: {
+    width: '100%',
+    marginBottom: 16,
+  },
+  summaryRow: {
     flexDirection: 'row',
-    backgroundColor: theme.colors.surfaceAlt,
-    marginHorizontal: 24,
-    padding: 16,
-    borderRadius: 20,
-    marginBottom: 12,
-    alignItems: 'center',
     gap: 16,
   },
-  cardPreview: {
+  summaryHalf: {
+    flex: 1,
+  },
+  summaryAccent: {
+    position: 'absolute',
+    left: 0,
+    top: 0,
+    bottom: 0,
+    width: 4,
+    backgroundColor: ws.accent,
+    borderTopLeftRadius: 12,
+    borderBottomLeftRadius: 12,
+  },
+  summaryBody: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    padding: 22,
+    paddingLeft: 20,
+  },
+  summaryLabel: {
+    color: ws.label,
+    fontSize: 12,
+    fontWeight: '600',
+    letterSpacing: 0.7,
+    textTransform: 'uppercase',
+    marginBottom: 4,
+    fontFamily: 'PDFabMontserrat',
+  },
+  summaryValueLarge: {
+    color: '#ffffff',
+    fontSize: 34,
+    fontWeight: '800',
+    lineHeight: 40,
+    fontFamily: 'PDFabMontserrat',
+  },
+  summaryCardActive: {
+    borderWidth: 1,
+    borderColor: 'rgba(255, 140, 0, 0.45)',
+  },
+  sectionBlock: {
+    marginBottom: 24,
+  },
+  sectionPad: {
+    paddingHorizontal: 24,
+  },
+  sectionTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  sectionOrangeBar: {
+    width: 4,
+    height: 20,
+    borderRadius: 2,
+    backgroundColor: ws.accent,
+    marginRight: 10,
+  },
+  sectionHeading: {
+    color: '#ffffff',
+    fontSize: 18,
+    fontWeight: '700',
+    letterSpacing: -0.2,
+    fontFamily: 'PDFabMontserrat',
+  },
+  recentHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    justifyContent: 'space-between',
+    paddingHorizontal: 24,
+    marginBottom: 12,
+  },
+  viewAllLink: {
+    color: ws.accent,
+    fontSize: 11,
+    fontWeight: '700',
+    letterSpacing: 1.2,
+    textTransform: 'uppercase',
+    fontFamily: 'PDFabMontserrat',
+  },
+  quickActionsTitleSpacing: {
+    marginBottom: 14,
+  },
+  actionsCarousel: {
+    flexDirection: 'row',
+    alignItems: 'stretch',
+    gap: 16,
+    paddingBottom: 4,
+    paddingTop: 4,
+    paddingRight: 24,
+  },
+  actionCardMain: {
+    width: 280,
+    minHeight: 148,
+    borderRadius: 12,
+    overflow: 'hidden',
+  },
+  actionCardGradient: {
+    padding: 22,
+    flex: 1,
+    position: 'relative',
+    overflow: 'hidden',
+  },
+  actionWatermark: {
+    position: 'absolute',
+    right: -28,
+    bottom: -28,
+    opacity: 1,
+  },
+  actionIconWrapper: {
     width: 48,
     height: 48,
-    borderRadius: 12,
-    backgroundColor: theme.colors.surface,
+    borderRadius: 10,
+    backgroundColor: 'rgba(255,255,255,0.2)',
     alignItems: 'center',
     justifyContent: 'center',
+    marginBottom: 14,
+  },
+  actionLabelMain: {
+    color: '#0e1320',
+    fontSize: 19,
+    fontWeight: '800',
+    marginBottom: 4,
+    fontFamily: 'PDFabMontserrat',
+  },
+  actionDescMain: {
+    color: 'rgba(14,19,32,0.72)',
+    fontSize: 13,
+    fontWeight: '500',
+    maxWidth: 220,
+    fontFamily: 'PDFabMontserrat',
+  },
+  actionCardSmall: {
+    width: 160,
+    backgroundColor: ws.surface,
+    borderRadius: 12,
+    padding: 22,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.05)',
+    flexDirection: 'column',
+    gap: 14,
+  },
+  actionLabelSmall: {
+    color: '#dee2f4',
+    fontSize: 15,
+    fontWeight: '700',
+    fontFamily: 'PDFabMontserrat',
+  },
+  card: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: ws.row,
+    marginHorizontal: 24,
+    paddingVertical: 14,
+    paddingHorizontal: 14,
+    borderRadius: 12,
+    marginBottom: 10,
+  },
+  cardFaded: {
+    opacity: 0.82,
+  },
+  cardIconSlot: {
+    width: 40,
+    height: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 12,
   },
   cardInfo: {
     flex: 1,
+    minWidth: 0,
   },
   cardTitle: {
-    color: theme.colors.text,
+    color: '#ffffff',
     fontSize: 15,
-    fontWeight: '800',
-    marginBottom: 2,
+    fontWeight: '600',
+    marginBottom: 4,
+    fontFamily: 'PDFabMontserrat',
   },
-  cardDate: {
-    color: 'rgba(255,255,255,0.4)',
-    fontSize: 12,
+  cardMeta: {
+    color: ws.label,
+    fontSize: 10,
     fontWeight: '500',
+    letterSpacing: 0.2,
+    fontFamily: 'PDFabMontserrat',
   },
   cardActions: {
     flexDirection: 'row',
-    gap: 8,
+    alignItems: 'center',
+    gap: 2,
   },
-  cardActionIcon: {
-    padding: 8,
+  cardActionGhost: {
+    padding: 6,
   },
-  fab: {
-    position: 'absolute',
-    right: 24,
-    bottom: 110,
-    width: 64,
-    height: 64,
-    borderRadius: 20,
-    backgroundColor: theme.colors.accentStrong,
+  moreBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 8,
+    backgroundColor: 'rgba(255,140,0,0.1)',
     alignItems: 'center',
     justifyContent: 'center',
-    shadowColor: theme.colors.accentStrong,
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.4,
-    shadowRadius: 16,
-    elevation: 8,
+  },
+  fabOuter: {
+    position: 'absolute',
+    right: 22,
+    bottom: 102,
+    zIndex: 20,
+    borderRadius: 12,
+    overflow: 'hidden',
+    ...Platform.select({
+      ios: {
+        shadowColor: ws.accent,
+        shadowOffset: { width: 0, height: 8 },
+        shadowOpacity: 0.35,
+        shadowRadius: 14,
+      },
+      android: { elevation: 10 },
+      default: {},
+    }),
+  },
+  fab: {
+    width: 56,
+    height: 56,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  fabImageRadius: {
+    borderRadius: 12,
   },
   empty: {
     alignItems: 'center',
     justifyContent: 'center',
-    paddingTop: 60,
+    paddingTop: 48,
+    paddingHorizontal: 24,
   },
   emptyText: {
-    color: theme.colors.textSoft,
-    fontSize: 14,
-    fontWeight: '800',
-    marginTop: 16,
+    color: ws.trashIcon,
+    fontSize: 13,
+    fontWeight: '700',
+    marginTop: 14,
     textTransform: 'uppercase',
     letterSpacing: 1,
+    fontFamily: 'PDFabMontserrat',
   },
-  // Toast & Modal styles retained from original but adapted to new spacing
   modalOverlay: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.8)',

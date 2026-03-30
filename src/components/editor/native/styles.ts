@@ -512,6 +512,17 @@ export const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '700',
   },
+  selectionPillSizeLabel: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 6,
+    minWidth: 36,
+  },
+  selectionPillSizeText: {
+    color: theme.colors.textMuted,
+    fontSize: 12,
+    fontWeight: '700',
+  },
   selectionDeleteBtn: {
     backgroundColor: 'rgba(220,38,38,0.9)',
     minWidth: 38,

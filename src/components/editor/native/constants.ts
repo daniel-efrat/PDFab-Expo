@@ -38,14 +38,14 @@ export const HEBREW_CAPABLE_FONT_FAMILIES = new Set([
   'System',
 ]);
 export const DEFAULT_TEXT_METRICS_PRESET: TextMetricsPreset = {
-  widthRatio: 0.58,
-  widthBuffer: 2,
-  lineHeightRatio: 0.88,
+  widthRatio: 0.52,
+  widthBuffer: 1,
+  lineHeightRatio: 1.05,
   ascentRatio: 0.78,
-  descentRatio: 0.06,
+  descentRatio: 0.14,
   horizontalPaddingRatio: 0,
-  verticalPaddingRatio: 0,
-  minHeightRatio: 0.84,
+  verticalPaddingRatio: 0.1,
+  minHeightRatio: 0.95,
 };
 
 export const RTL_TEXT_METRICS_PRESETS: Record<string, TextMetricsPreset> = {
