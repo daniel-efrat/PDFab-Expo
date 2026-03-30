@@ -61,3 +61,14 @@ export interface SignatureSlot {
   imageStoragePath?: string;
   updatedAt: string;
 }
+
+export type TranscribedElement =
+  | { type: 'h1' | 'h2' | 'h3'; text: string }
+  | { type: 'p'; text: string }
+  | { type: 'list'; items: string[] }
+  | { type: 'table'; headers: string[]; rows: string[][] };
+
+export interface StructuredDocument {
+  title: string;
+  elements: TranscribedElement[];
+}

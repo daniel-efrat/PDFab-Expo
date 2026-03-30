@@ -3,7 +3,7 @@ import { View, Text, StyleSheet, TouchableOpacity, Image, ActivityIndicator, Dim
 import { Camera, CameraView, useCameraPermissions } from 'expo-camera';
 import * as ImagePicker from 'expo-image-picker';
 import { useStore } from '../store/useStore';
-import { ChevronLeft, Camera as CameraIcon, Image as ImageIcon, Check, X, Scan, RefreshCw } from 'lucide-react-native';
+import { ChevronLeft, Camera as CameraIcon, Image as ImageIcon, Check, X, Scan, RefreshCw, Sparkles } from 'lucide-react-native';
 import { uriToBlob } from '../lib/blob-utils';
 import { db, storage } from '../firebase';
 import { collection, addDoc } from 'firebase/firestore';
@@ -97,12 +97,20 @@ export default function Scanner({ setView }: ScannerProps) {
         annotations: []
       });
 
-      setView('dashboard');
+      return fileUrl; // Return URL for direct transcription
     } catch (err: any) {
       console.error('Scan error:', err);
       Alert.alert('Error', 'Failed to create PDF from scan.');
+      return null;
     } finally {
       setScanning(false);
+    }
+  };
+
+  const handleScanAndNavigate = async (nextView: 'dashboard' | 'transcription') => {
+    const fileUrl = await handleScan();
+    if (fileUrl) {
+      setView(nextView);
     }
   };
 
@@ -173,16 +181,27 @@ export default function Scanner({ setView }: ScannerProps) {
             <Image source={{ uri: image! }} style={styles.previewImage} resizeMode="contain" />
             <View style={styles.previewActions}>
               <NeumorphicButton layerStyle={styles.discardButton} onPress={() => setImage(null)}>
+                <X size={18} color="rgba(255,255,255,0.4)" />
                 <Text style={styles.discardButtonText}>DISCARD</Text>
               </NeumorphicButton>
-              <NeumorphicButton 
-                layerStyle={[styles.saveButton, { backgroundColor: theme.colors.accentStrong }]}
-                onPress={handleScan} 
-                disabled={scanning}
-              >
-                {scanning ? <ActivityIndicator color={theme.colors.white} /> : <Check size={20} color={theme.colors.white} />}
-                <Text style={styles.saveButtonText}>{scanning ? 'SAVING...' : 'CREATE PDF'}</Text>
-              </NeumorphicButton>
+              <View style={{ flex: 3, gap: 10 }}>
+                <NeumorphicButton 
+                  layerStyle={[styles.saveButton, { backgroundColor: theme.colors.surfaceAlt }]}
+                  onPress={() => handleScanAndNavigate('dashboard')} 
+                  disabled={scanning}
+                >
+                  {scanning ? <ActivityIndicator color={theme.colors.white} /> : <Check size={20} color={theme.colors.white} />}
+                  <Text style={styles.saveButtonText}>CREATE PDF</Text>
+                </NeumorphicButton>
+                <NeumorphicButton 
+                  layerStyle={[styles.saveButton, { backgroundColor: theme.colors.accentStrong }]}
+                  onPress={() => handleScanAndNavigate('transcription')} 
+                  disabled={scanning}
+                >
+                  <Sparkles size={18} color={theme.colors.white} />
+                  <Text style={styles.saveButtonText}>AI TRANSCRIBE</Text>
+                </NeumorphicButton>
+              </View>
             </View>
           </View>
         )}

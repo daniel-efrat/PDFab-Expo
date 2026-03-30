@@ -187,6 +187,16 @@ export default function Dashboard({ setView }: DashboardProps) {
       <View style={styles.cardActions}>
         <TouchableOpacity 
           style={styles.cardActionIcon}
+          onPress={(e) => { 
+            e.stopPropagation(); 
+            setCurrentDocument(item);
+            setView('transcription');
+          }}
+        >
+          <Zap size={20} color={theme.colors.accentStrong} />
+        </TouchableOpacity>
+        <TouchableOpacity 
+          style={styles.cardActionIcon}
           onPress={(e) => { e.stopPropagation(); toggleStar(item.id, item.isStarred); }}
         >
           <Star size={20} color={item.isStarred ? theme.colors.warning : theme.colors.textSoft} fill={item.isStarred ? theme.colors.warning : 'transparent'} />
@@ -280,9 +290,18 @@ export default function Dashboard({ setView }: DashboardProps) {
           </ImageBackground>
         </TouchableOpacity>
 
-        <TouchableOpacity style={styles.actionCardSmall} onPress={() => setView('transcription')}>
-          <Zap size={20} color={theme.colors.accentStrong} style={{ marginBottom: 12 }} />
-          <Text style={styles.actionLabelSmall}>AI Transcribe</Text>
+        <TouchableOpacity style={styles.actionCardMainSecondary} onPress={() => setView('transcription')} activeOpacity={0.9}>
+          <ImageBackground 
+            source={require('../../assets/gradient.png')} 
+            style={[styles.actionCardGradient, { opacity: 0.9 }]}
+            resizeMode="cover"
+          >
+            <View style={[styles.actionIconWrapper, { backgroundColor: 'rgba(255,255,255,0.15)' }]}>
+              <Zap size={24} color="#fff" />
+            </View>
+            <Text style={styles.actionLabelMain}>AI Transcribe</Text>
+            <Text style={styles.actionDescMain}>Audio to PDF text in seconds</Text>
+          </ImageBackground>
         </TouchableOpacity>
 
         <TouchableOpacity style={styles.actionCardSmall} onPress={() => setView('signatures')}>
@@ -513,9 +532,16 @@ const styles = StyleSheet.create({
     paddingBottom: 32,
   },
   actionCardMain: {
-    width: 280,
+    width: 260,
     borderRadius: 24,
     overflow: 'hidden',
+  },
+  actionCardMainSecondary: {
+    width: 260,
+    borderRadius: 24,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.05)',
   },
   actionCardGradient: {
     padding: 24,

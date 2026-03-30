@@ -1,1 +1,1 @@
-export { default } from './EditorNative';
+export { default } from './editor/EditorNative';

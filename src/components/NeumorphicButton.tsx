@@ -55,7 +55,7 @@ export default function NeumorphicButton({
 // Separate the view logic into an internal component to re-use Web box-shadows reactively or nest Views
 // We just use a derived approach here for Native and Web
 function InnerButtonView({ children, radius, isPressed, layerStyle }: any) {
-  const baseStyle = { backgroundColor: theme.colors.surface, borderRadius: radius, flex: 1 };
+  const baseStyle = { backgroundColor: theme.colors.surface, borderRadius: radius };
   
   if (Platform.OS === 'web') {
     const webAnimatedStyle = useAnimatedStyle(() => {
@@ -95,7 +95,7 @@ function InnerButtonView({ children, radius, isPressed, layerStyle }: any) {
   return (
     <Animated.View style={[{ backgroundColor: theme.colors.surface, borderRadius: radius }, darkLayerStyle]}>
       <Animated.View style={[baseStyle, lightLayerStyle, layerStyle]}>
-        <View style={[{ padding: 12, alignItems: 'center', justifyContent: 'center', flex: 1 }, layerStyle]}>
+        <View style={[{ padding: 12, alignItems: 'center', justifyContent: 'center' }, layerStyle]}>
           {children}
         </View>
       </Animated.View>
