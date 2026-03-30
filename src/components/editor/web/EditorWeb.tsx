@@ -6,6 +6,7 @@ import * as pdfjs from 'pdfjs-dist';
 import { PDFDocument as PDFLib } from 'pdf-lib';
 import { doc, updateDoc } from 'firebase/firestore';
 import { db } from '../../../firebase';
+import { embedAnnotationsInPdf } from '../../../lib/embedAnnotationsInPdf';
 import { savePdf } from '../../../lib/savePdf';
 import { theme } from '../../../theme';
 import { AnnotationOverlay } from './AnnotationOverlay';
@@ -86,9 +87,13 @@ export default function Editor({ setView }: EditorProps) {
   const handleExport = async () => {
     if (!currentDocument) return;
     try {
-      const response = await fetch(currentDocument.fileUrl);
+      const response = await fetch(currentDocument.fileUrl!);
       const existingPdfBytes = await response.arrayBuffer();
       const pdfDoc = await PDFLib.load(existingPdfBytes);
+      const isMobile = winWidth < 768;
+      const availableWidth = isMobile ? winWidth : winWidth - SIDEBAR_WIDTH;
+      const editorSurfaceWidth = Math.max(120, availableWidth * zoom);
+      await embedAnnotationsInPdf(pdfDoc, annotations, { editorSurfaceWidth });
       const pdfBytes = await pdfDoc.save();
       await savePdf(pdfBytes, currentDocument.title);
     } catch (err) {

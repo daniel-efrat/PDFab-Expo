@@ -1,6 +1,7 @@
 import React, { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   Dimensions,
   Keyboard,
   Modal,
@@ -40,9 +41,12 @@ import {
 } from 'lucide-react-native';
 import { PDFDocument as PDFLib } from 'pdf-lib';
 import { collection, doc, onSnapshot, updateDoc } from 'firebase/firestore';
+import { getDownloadURL, ref as storageRef } from 'firebase/storage';
+import * as Sharing from 'expo-sharing';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Svg, { G, Image as SvgImage, Path as SvgPath } from 'react-native-svg';
-import { db } from '../../firebase';
+import { db, storage } from '../../firebase';
+import { embedAnnotationsInPdf } from '../../lib/embedAnnotationsInPdf';
 import { savePdf } from '../../lib/savePdf';
 import { useStore } from '../../store/useStore';
 import type { Annotation, PDFDocument } from '../../types';
@@ -385,15 +389,39 @@ export default function EditorNative({ setView }: EditorProps) {
   }, [user]);
 
   const handleExport = async () => {
-    if (!currentDocument?.fileUrl) return;
+    if (!currentDocument) return;
     try {
-      const response = await fetch(currentDocument.fileUrl);
+      let sourceUrl = currentDocument.fileUrl;
+      if (!sourceUrl && currentDocument.fileStoragePath) {
+        sourceUrl = await getDownloadURL(storageRef(storage, currentDocument.fileStoragePath));
+      }
+      if (!sourceUrl) {
+        Alert.alert('Export failed', 'This document has no file link. Try re-uploading the PDF.');
+        return;
+      }
+
+      const response = await fetch(sourceUrl);
+      if (!response.ok) {
+        throw new Error(`Could not download PDF (${response.status})`);
+      }
       const existingPdfBytes = await response.arrayBuffer();
       const pdfDoc = await PDFLib.load(existingPdfBytes);
+      await embedAnnotationsInPdf(pdfDoc, annotations, { editorSurfaceWidth: surfaceSize.width });
       const pdfBytes = await pdfDoc.save();
-      await savePdf(pdfBytes, currentDocument.title);
+      const localUri = await savePdf(new Uint8Array(pdfBytes), currentDocument.title);
+
+      if (Platform.OS !== 'web') {
+        const canShare = await Sharing.isAvailableAsync();
+        if (canShare) {
+          await Sharing.shareAsync(localUri, { mimeType: 'application/pdf', dialogTitle: 'Export PDF' });
+        } else {
+          Alert.alert('Saved', 'PDF saved in the app. Sharing is not available on this device.');
+        }
+      }
     } catch (err) {
       console.error('Export error:', err);
+      const message = err instanceof Error ? err.message : String(err);
+      Alert.alert('Export failed', message);
     }
   };
 
@@ -1289,7 +1317,7 @@ export default function EditorNative({ setView }: EditorProps) {
             <ToolButton icon={PenTool} active={isSignatureTool} onPress={() => setActiveTool('SIGNATURE')} />
             <View style={styles.toolDivider} />
             <TouchableOpacity style={styles.exportBtn} onPress={handleExport}>
-              <Download size={20} color="#000" />
+              <Download size={18} color="#000" />
             </TouchableOpacity>
           </View>
         )}
