@@ -2,7 +2,6 @@ import type { Annotation } from '../../../../types';
 import {
   BUNDLED_FONT_FAMILY_MAP,
   DEFAULT_TEXT_METRICS_PRESET,
-  HEBREW_CAPABLE_FONT_FAMILIES,
   HIGHLIGHT_OPACITY,
   LTR_TEXT_METRICS_PRESETS,
   MIN_STROKE_POINT_DISTANCE,
@@ -258,18 +257,12 @@ export function getNativeFontFamily(fontFamily?: string) {
   return BUNDLED_FONT_FAMILY_MAP[normalizedFont] || BUNDLED_FONT_FAMILY_MAP.System;
 }
 
+/** RTL (Hebrew, Arabic, etc.): use platform system font for native shaping and parity with RN <Text>. */
 export function getEffectiveFontFamilyName(textValue: string, fontFamily?: string) {
-  const normalizedFont = fontFamily || 'System';
-
-  if (!isRTLText(textValue)) {
-    return normalizedFont;
+  if (isRTLText(textValue)) {
+    return 'System';
   }
-
-  if (HEBREW_CAPABLE_FONT_FAMILIES.has(normalizedFont)) {
-    return normalizedFont;
-  }
-
-  return 'Assistant';
+  return fontFamily || 'System';
 }
 
 export function getRenderableFontFamily(textValue: string, fontFamily?: string) {

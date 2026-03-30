@@ -1,4 +1,5 @@
 import { useMemo } from 'react';
+import { Platform } from 'react-native';
 import type { Annotation } from '../../../../types';
 import { getRenderableFontFamily, getTextMetrics } from './geometry';
 import { getTextDirectionStyle } from './helpers';
@@ -31,6 +32,7 @@ export function useMeasuredTextAnnotationBox({
       fontFamily: getRenderableFontFamily(textValue, annotationData?.fontFamily),
       fontSize: metrics.fontSize,
       ...getTextDirectionStyle(textValue),
+      ...(Platform.OS === 'android' ? { includeFontPadding: true } : {}),
     }),
     [annotationData?.color, annotationData?.fontFamily, metrics.fontSize, textValue]
   );

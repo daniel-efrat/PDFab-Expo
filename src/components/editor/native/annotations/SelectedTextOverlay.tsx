@@ -7,6 +7,7 @@ import { Trash2 } from 'lucide-react-native';
 import type { Annotation } from '../../../../types';
 import { styles } from '../styles';
 import { getResizedTextFontSize, getRotationDegrees, getRotationFromGesture } from '../utils/geometry';
+import { isRTLText } from '../utils/helpers';
 import {
   getTextAnchorPageCoords,
   getTextAnnotationFrame,
@@ -316,7 +317,17 @@ export function SelectedTextOverlay({
           <Circle cx={boxWidth + canvasHandleOffset} cy={boxHeight + canvasHandleOffset} r={canvasHandleRadius} color="#ffffff" />
           <Circle cx={boxWidth + canvasHandleOffset} cy={boxHeight + canvasHandleOffset} r={canvasHandleRadius} color="#60a5fa" style="stroke" strokeWidth={canvasHandleStrokeWidth} />
         </Canvas>
-        <View pointerEvents="none" style={{ position: 'absolute', left: 0, top: 0, width: boxWidth, minHeight: boxHeight }}>
+        <View
+          pointerEvents="none"
+          style={{
+            position: 'absolute',
+            left: 0,
+            top: 0,
+            width: boxWidth,
+            minHeight: boxHeight,
+            alignItems: isRTLText(textValue) ? 'flex-end' : 'flex-start',
+          }}
+        >
           <Text allowFontScaling={false} style={textStyle}>
             {textValue}
           </Text>

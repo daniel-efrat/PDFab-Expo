@@ -3,6 +3,7 @@ import { StyleSheet, Text, View } from 'react-native';
 import type { Annotation } from '../../../../types';
 import { styles } from '../styles';
 import { getRotationDegrees } from '../utils/geometry';
+import { isRTLText } from '../utils/helpers';
 import {
   getTextAnchorPageCoords,
   getTextAnnotationFrame,
@@ -72,6 +73,7 @@ function MeasuredTextAnnotationView({
           top: boxTop,
           width: boxWidth,
           minHeight: boxHeight,
+          alignItems: isRTLText(textValue) ? 'flex-end' : 'flex-start',
           transform: [{ rotate: `${rotation}deg` }],
         },
       ]}

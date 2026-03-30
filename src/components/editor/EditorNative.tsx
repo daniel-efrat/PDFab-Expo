@@ -1,4 +1,4 @@
-import React, { Fragment, useEffect, useMemo, useRef, useState } from 'react';
+import React, { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Dimensions,
@@ -56,7 +56,6 @@ import { ZoomSlider } from './native/controls/ZoomSlider';
 import {
   AUTOSAVE_DEBOUNCE_MS,
   EMPTY_POINTS,
-  FONT_OPTIONS,
   HIGHLIGHT_COLORS,
   HIGHLIGHT_DEFAULT_COLOR,
   HIGHLIGHT_DEFAULT_WIDTH,
@@ -88,7 +87,10 @@ import {
 } from './native/utils/geometry';
 import { nextId } from './native/utils/ids';
 
-const { width, height } = Dimensions.get('window');
+/** Match `pageWrapper` paddingHorizontal (20) × 2 in native/styles.ts */
+const PAGE_WRAPPER_HORIZONTAL_PADDING = 40;
+/** Bottom / vertical slack so the scaled page fits inside the editor scroll viewport */
+const PAGE_EDITOR_VERTICAL_PADDING = 48;
 
 export default function EditorNative({ setView }: EditorProps) {
   const user = useStore((state) => state.user);
@@ -114,15 +116,44 @@ export default function EditorNative({ setView }: EditorProps) {
   const selectedAnnotationId = useStore((state) => state.selectedAnnotationId);
   const setSelectedAnnotation = useStore((state) => state.setSelectedAnnotation);
 
-  const basePageWidth = width * 0.9;
   const [currentPage, setCurrentPage] = useState(0);
   const [resolvedPageCount, setResolvedPageCount] = useState(Math.max(currentDocument?.totalPages || 1, 1));
   const [loadingPdf, setLoadingPdf] = useState(true);
   const [pdfError, setPdfError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [zoom, setZoom] = useState(1);
-  const [surfaceSize, setSurfaceSize] = useState({ width: basePageWidth, height: basePageWidth * 1.414 });
-  const [editorViewportSize, setEditorViewportSize] = useState({ width, height: height * 0.6 });
+  const [pdfPageAspect, setPdfPageAspect] = useState(Math.SQRT2);
+  const [editorViewportSize, setEditorViewportSize] = useState(() => {
+    const { width: w, height: h } = Dimensions.get('window');
+    return { width: w, height: h * 0.6 };
+  });
+
+  const basePageWidth = useMemo(() => {
+    const wCap = Math.max(120, editorViewportSize.width - PAGE_WRAPPER_HORIZONTAL_PADDING);
+    const hCap = Math.max(100, editorViewportSize.height - PAGE_EDITOR_VERTICAL_PADDING);
+    const wFromHeight = hCap / pdfPageAspect;
+    return Math.max(80, Math.min(wCap, wFromHeight));
+  }, [editorViewportSize.width, editorViewportSize.height, pdfPageAspect]);
+
+  const [surfaceSize, setSurfaceSize] = useState(() => {
+    const { width: w, height: h } = Dimensions.get('window');
+    const vw = Math.max(120, w - PAGE_WRAPPER_HORIZONTAL_PADDING);
+    const vh = Math.max(100, h * 0.6 - PAGE_EDITOR_VERTICAL_PADDING);
+    const ar = Math.SQRT2;
+    const bw = Math.min(vw, vh / ar);
+    return { width: bw, height: bw * ar };
+  });
+
+  useLayoutEffect(() => {
+    setSurfaceSize((prev) => {
+      const nextW = basePageWidth;
+      const nextH = basePageWidth * pdfPageAspect;
+      if (Math.abs(prev.width - nextW) < 0.5 && Math.abs(prev.height - nextH) < 0.5) {
+        return prev;
+      }
+      return { width: nextW, height: nextH };
+    });
+  }, [basePageWidth, pdfPageAspect]);
   const [drawPoints, setDrawPoints] = useState<Array<{ x: number; y: number }>>([]);
   const [draftInput, setDraftInput] = useState<DraftInput | null>(null);
   const [inputValue, setInputValue] = useState('');
@@ -928,13 +959,7 @@ export default function EditorNative({ setView }: EditorProps) {
                       onPdfLoadComplete={(numberOfPages, size) => {
                         setResolvedPageCount(Math.max(numberOfPages, 1));
                         if (size?.width && size?.height) {
-                          const nextHeight = basePageWidth * (size.height / size.width);
-                          setSurfaceSize((previous) => {
-                            if (Math.abs(previous.height - nextHeight) < 0.5 && Math.abs(previous.width - basePageWidth) < 0.5) {
-                              return previous;
-                            }
-                            return { width: basePageWidth, height: nextHeight };
-                          });
+                          setPdfPageAspect(size.height / size.width);
                         }
                         setLoadingPdf(false);
                         setPdfError(null);
@@ -999,20 +1024,6 @@ export default function EditorNative({ setView }: EditorProps) {
                   style={[styles.colorSwatchLarge, { backgroundColor: color }, activeTextColor === color && styles.colorSwatchActive]}
                   onPress={() => applyTextStyleUpdate({ color })}
                 />
-              ))}
-            </ScrollView>
-
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.fontRow}>
-              {FONT_OPTIONS.map((option) => (
-                <TouchableOpacity
-                  key={option}
-                  style={[styles.fontChip, activeTextFont === option && styles.fontChipActive]}
-                  onPress={() => applyTextStyleUpdate({ fontFamily: option })}
-                >
-                  <Text style={[styles.fontChipText, activeTextFont === option && styles.fontChipTextActive]} numberOfLines={1}>
-                    {option}
-                  </Text>
-                </TouchableOpacity>
               ))}
             </ScrollView>
 

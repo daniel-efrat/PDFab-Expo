@@ -32,19 +32,7 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const [view, setView] = useState<string>('dashboard');
   const [fontsLoaded] = useFonts({
-    PDFabArial: require('../assets/fonts/Arial.ttf'),
-    PDFabAssistant: require('../assets/fonts/Assistant-VariableFont_wght.ttf'),
-    PDFabAmaticSC: require('../assets/fonts/AmaticSC-Regular.ttf'),
-    PDFabAmaticSCBold: require('../assets/fonts/AmaticSC-Bold.ttf'),
-    PDFabBellefair: require('../assets/fonts/Bellefair-Regular.ttf'),
     PDFabMontserrat: require('../assets/fonts/Montserrat-VariableFont_wght.ttf'),
-    PDFabMontserratItalic: require('../assets/fonts/Montserrat-Italic-VariableFont_wght.ttf'),
-    PDFabOpenSans: require('../assets/fonts/OpenSans-VariableFont_wdth,wght.ttf'),
-    PDFabOpenSansItalic: require('../assets/fonts/OpenSans-Italic-VariableFont_wdth,wght.ttf'),
-    PDFabGeorgia: require('../assets/fonts/Georgia.ttf'),
-    PDFabCourierNew: require('../assets/fonts/CourierNew.ttf'),
-    PDFabTimesNewRoman: require('../assets/fonts/TimesNewRoman.ttf'),
-    PDFabVerdana: require('../assets/fonts/Verdana.ttf'),
   });
 
   useEffect(() => {

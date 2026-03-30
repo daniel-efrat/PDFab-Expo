@@ -145,7 +145,7 @@ export const useStore = create<AppState>((set, get) => ({
   setPenColor: (color) => set({ penColor: color }),
   penWidth: 2,
   setPenWidth: (width) => set({ penWidth: width }),
-  fontFamily: 'Inter',
+  fontFamily: 'System',
   setFontFamily: (family) => set({ fontFamily: family }),
   fontSize: 16,
   setFontSize: (size) => set({ fontSize: size }),

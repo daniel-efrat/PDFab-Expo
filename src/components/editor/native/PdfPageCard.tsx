@@ -1,5 +1,5 @@
 import React, { memo } from 'react';
-import { ActivityIndicator, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { GestureDetector } from 'react-native-gesture-handler';
 import { FileText } from 'lucide-react-native';
 import type { Annotation, PDFDocument } from '../../../types';
@@ -17,7 +17,6 @@ import type { DraftInput } from './types';
 import { PdfPageSurface } from './PdfPageSurface';
 import { styles } from './styles';
 import { getRenderableFontFamily } from './utils/geometry';
-import { getTextDirectionStyle } from './utils/helpers';
 
 export const PdfPageCard = memo(function PdfPageCard({
   pageIndex,
@@ -100,6 +99,29 @@ export const PdfPageCard = memo(function PdfPageCard({
   onOverlayInteractionEnd: () => void;
   onApplyTextFontSizeDelta: (delta: number) => void;
 }) {
+  let textDraftEditorLayout: {
+    editorWidth: number;
+    editorMinH: number;
+    left: number;
+    top: number;
+  } | null = null;
+  if (isTextDrafting && draftInput) {
+    const editorMinW = 160;
+    const desiredMaxW = Math.min(surfaceWidth * 0.85, 520);
+    const editorMinH = activeTextSize + (Platform.OS === 'android' ? 16 : 10);
+    const rawLeft = Math.max(0, (draftInput.x / 100) * surfaceWidth);
+    const rawTop = (draftInput.y / 100) * surfaceHeight - activeTextSize;
+    const spaceRight = Math.max(0, surfaceWidth - rawLeft);
+    let editorWidth = Math.min(desiredMaxW, spaceRight);
+    let left = rawLeft;
+    if (editorWidth < editorMinW) {
+      editorWidth = Math.min(editorMinW, surfaceWidth);
+      left = Math.max(0, surfaceWidth - editorWidth);
+    }
+    const top = Math.max(0, Math.min(rawTop, Math.max(0, surfaceHeight - editorMinH)));
+    textDraftEditorLayout = { editorWidth, editorMinH, left, top };
+  }
+
   return (
     <Pressable
       onPress={onPressPage}
@@ -355,18 +377,20 @@ export const PdfPageCard = memo(function PdfPageCard({
               )
             ))}
           </View>
-          {isTextDrafting && draftInput && (
+          {textDraftEditorLayout && (
             <View
               pointerEvents="box-none"
               style={[
                 styles.inlineTextEditor,
                 {
-                  left: (draftInput.x / 100) * surfaceWidth,
-                  top: (draftInput.y / 100) * surfaceHeight - activeTextSize,
+                  left: textDraftEditorLayout.left,
+                  top: textDraftEditorLayout.top,
+                  width: textDraftEditorLayout.editorWidth,
                 },
               ]}
             >
               <TextInput
+                allowFontScaling={false}
                 value={inputValue}
                 onChangeText={onChangeDraftInput}
                 placeholder="Enter your text"
@@ -378,10 +402,16 @@ export const PdfPageCard = memo(function PdfPageCard({
                 style={[
                   styles.inlineTextInput,
                   {
+                    width: '100%',
+                    minHeight: textDraftEditorLayout.editorMinH,
                     color: activeTextColor,
                     fontFamily: getRenderableFontFamily(inputValue, activeTextFont),
                     fontSize: activeTextSize,
-                    ...getTextDirectionStyle(inputValue),
+                    textAlign: 'left',
+                    writingDirection: 'ltr',
+                    ...(Platform.OS === 'android'
+                      ? { textAlignVertical: 'center' as const, includeFontPadding: true }
+                      : {}),
                   },
                 ]}
               />

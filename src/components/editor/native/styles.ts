@@ -230,10 +230,6 @@ export const styles = StyleSheet.create({
     backgroundColor: theme.colors.page,
     overflow: 'hidden',
   },
-  fontRow: {
-    gap: 10,
-    paddingRight: 20,
-  },
   contextActions: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -255,26 +251,6 @@ export const styles = StyleSheet.create({
     borderRadius: 17,
     borderWidth: 2,
     borderColor: 'transparent',
-  },
-  fontChip: {
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    borderRadius: 999,
-    backgroundColor: theme.colors.surfaceMuted,
-    borderWidth: 1,
-    borderColor: theme.colors.border,
-  },
-  fontChipActive: {
-    backgroundColor: theme.colors.accentStrong,
-    borderColor: theme.colors.accentStrong,
-  },
-  fontChipText: {
-    color: theme.colors.textMuted,
-    fontSize: 12,
-    fontWeight: '600',
-  },
-  fontChipTextActive: {
-    color: theme.colors.white,
   },
   sliderBlock: {
     gap: 10,
